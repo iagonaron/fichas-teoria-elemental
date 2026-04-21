@@ -242,8 +242,21 @@ def ids_fijos():
 
 
 def ids_por_defecto():
-    """Ids marcados por defecto al abrir la UI: todos los disponibles."""
-    return {e["id"] for e in ejercicios_disponibles()}
+    """Ids marcados por defecto al abrir la UI.
+
+    Suman 10 "ejercicios" totales (contando que Tonalidades+Armaduras+
+    Tonos vecinos son 3 en uno): 7 opcionales + el fijo que vale 3.
+    El usuario puede cambiar la selección después."""
+    return {
+        "claves_a",
+        "intervalos_a",
+        "acordes",
+        "tonalidades",     # fijo, vale 3
+        "grados",
+        "qihe",
+        "enarmonias",
+        "semitonos",
+    }
 
 
 # -----------------------------------------------------------------------------
