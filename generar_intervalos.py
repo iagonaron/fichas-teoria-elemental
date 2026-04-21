@@ -428,10 +428,10 @@ def svg_a_png_bytes(svg_text, ancho_pixeles):
     """Convierte SVG (string) a PNG bytes con el ancho deseado.
 
     Verovio emite <svg width="164px" height="77px"> sin viewBox. Algunas
-    combinaciones de cairosvg + libcairo (p.ej. Streamlit Cloud) lanzan
-    'The SVG size is undefined' con ese formato. Saneamos el <svg> raíz:
-    quitamos unidades de width/height y añadimos un viewBox explícito.
+    combinaciones de cairosvg + libcairo lanzan 'The SVG size is undefined'
+    con ese formato. Saneamos el <svg> raíz y añadimos viewBox explícito.
     """
+    svg_original = svg_text
     m = re.search(r'<svg\b([^>]*)>', svg_text)
     if m:
         attrs = m.group(1)
@@ -449,11 +449,18 @@ def svg_a_png_bytes(svg_text, ancho_pixeles):
                 f'viewBox="0 0 {w:g} {h:g}"{nuevos}>',
                 1,
             )
-    return cairosvg.svg2png(
-        bytestring=svg_text.encode("utf-8"),
-        output_width=ancho_pixeles,
-    )
-    
+    try:
+        return cairosvg.svg2png(
+            bytestring=svg_text.encode("utf-8"),
+            output_width=ancho_pixeles,
+        )
+    except Exception as e:
+        import cairosvg as _cs
+        head = svg_text[:200].replace("\n", " ")
+        raise RuntimeError(
+            f"cairosvg {_cs.__version__} falló: {e}. "
+            f"SVG head: {head}"
+        ) from e
 
 
 def _render_intervalos_png(lista_intervalos, modo, png_path,
@@ -566,8 +573,14 @@ def dibujar_en_canvas(c, x_ini, y_top, lista_intervalos, modo,
                 )
                 c.restoreState()
         else:
-            etiqueta, _direccion, _ = lista_intervalos[idx]
-            c.drawCentredString(x_centro, y_label, etiqueta)
+            # Intervalos B: la etiqueta indica SIEMPRE dirección
+            # (asc/desc). El alumno necesita saber si tiene que dibujar
+            # la respuesta hacia arriba o hacia abajo. Convención
+            # fijada por Iago.
+            etiqueta, direccion, _ = lista_intervalos[idx]
+            c.drawCentredString(
+                x_centro, y_label, f"{etiqueta} {direccion}"
+            )
 
     return y_label - 2 * mm
 
