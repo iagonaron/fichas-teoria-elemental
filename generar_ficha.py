@@ -75,6 +75,47 @@ def _dibujar_cabecera_simple(c, titulo):
 
 
 # -----------------------------------------------------------------------------
+# Dictado — bloque FIJO al final, no aparece en el selector. 4 pentagramas
+# vacíos (2 pares) con "Dictado" como rótulo.
+# -----------------------------------------------------------------------------
+DICT_SEP_LINEAS_MM = 180.0 / 90.06
+ALTO_DICTADO_MM = 72
+
+
+def _dibujar_pentagrama_vacio(c, x_ini, y_top_linea1, ancho_util_mm=160,
+                              grosor=0.3):
+    c.setLineWidth(grosor)
+    for i in range(5):
+        y = y_top_linea1 - i * DICT_SEP_LINEAS_MM * mm
+        c.line(x_ini, y, x_ini + ancho_util_mm * mm, y)
+    return y_top_linea1 - 4 * DICT_SEP_LINEAS_MM * mm
+
+
+def _dibujar_dictado(c, x_ini, y_top, ancho_util_mm=160):
+    """Dictado: título + 2 pares de pentagramas vacíos.
+    Devuelve y_bottom."""
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(x_ini, y_top, "Dictado")
+
+    gap_dentro_par = 8
+    gap_entre_pares = 14
+    margen_sup = 4
+    y_actual = y_top - (5 + margen_sup) * mm
+    for par_idx in range(2):
+        for penta_idx in range(2):
+            y_linea5 = _dibujar_pentagrama_vacio(
+                c, x_ini, y_actual, ancho_util_mm=ancho_util_mm,
+            )
+            if penta_idx == 0:
+                y_actual = y_linea5 - gap_dentro_par * mm
+            else:
+                y_actual = y_linea5
+        if par_idx == 0:
+            y_actual -= gap_entre_pares * mm
+    return y_actual
+
+
+# -----------------------------------------------------------------------------
 # Dispatchers: uno por cada ejercicio disponible.
 # Todos tienen la misma firma:
 #   (c, x, y_top, seed, num, out_pdf, ancho_util_mm, modo_solucion) -> y_bottom
@@ -308,6 +349,21 @@ def componer_ficha(numero_ficha, out_pdf, seed_base=50000,
         )
         num_enunciado += ej.get("n_numeros", 1)
         y_actual -= GAP_EJ_MM * mm
+
+    # Dictado FIJO al fondo de la última página. Si no cabe, nueva página.
+    y_top_dictado_ideal = ALTO_DICTADO_MM * mm + 15 * mm
+    if y_actual < y_top_dictado_ideal:
+        c.showPage()
+        y_actual = _dibujar_cabecera_simple(c, titulo_p2)
+
+    # Colocar el dictado pegado al fondo si cae espacio libre, o
+    # justo debajo del último ejercicio si no.
+    y_top_dictado = max(y_top_dictado_ideal, min(y_actual, 88 * mm))
+    if y_top_dictado > y_actual:
+        y_top_dictado = y_actual
+    _dibujar_dictado(
+        c, MARGEN_LAT_MM * mm, y_top_dictado, ancho_util_mm=ANCHO_UTIL_MM,
+    )
 
     c.showPage()
     c.save()
