@@ -427,15 +427,19 @@ def render_svg(musicxml, svg_path):
 def svg_a_png_bytes(svg_text, ancho_pixeles):
     """Convierte SVG (string) a PNG bytes con el ancho deseado.
 
-    Compatibilidad con cairosvg >= 2.7: si el <svg> raíz no lleva width/
-    height explícitos (sólo viewBox), los inyectamos para que cairosvg
-    pueda calcular el tamaño — si no, lanza 'The SVG size is undefined'.
+    cairosvg >= 2.7 a veces lanza 'The SVG size is undefined' con los
+    SVG de verovio. Forzamos width/height desde el viewBox antes de
+    entregar el SVG a cairosvg.
     """
-    vb = re.search(r'<svg\b[^>]*\sviewBox="([\d\.\-\s]+)"', svg_text)
-    if vb and re.search(r'<svg\b[^>]*\swidth=', svg_text) is None:
+    vb = re.search(r'viewBox="([\d\.\-\s]+)"', svg_text)
+    if vb:
         partes = vb.group(1).split()
         if len(partes) == 4:
             _, _, w, h = partes
+            # Quitamos width/height existentes
+            svg_text = re.sub(r'\swidth="[^"]*"', '', svg_text, count=1)
+            svg_text = re.sub(r'\sheight="[^"]*"', '', svg_text, count=1)
+            # Inyectamos width/height nuevos en el <svg> raíz
             svg_text = re.sub(
                 r'<svg\b',
                 f'<svg width="{w}" height="{h}"',
