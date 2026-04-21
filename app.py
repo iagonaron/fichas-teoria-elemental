@@ -16,11 +16,11 @@ Despliegue gratuito en Streamlit Community Cloud:
 import io
 import tempfile
 from pathlib import Path
-
+page_title="Fichas de Teoría Elemental",
 import streamlit as st
 
 # Los módulos generar_*.py viven al lado de este archivo.
-import generar_ficha as gfi
+import generar_ficha as gfi st.title("Fichas de Teoría Elemental")
 
 
 st.set_page_config(
