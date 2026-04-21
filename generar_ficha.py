@@ -1,42 +1,26 @@
 """
-Orquestador de ficha completa (Ficha 5) — Fichas de Teoría 3ºGe.
+Orquestador de ficha — selector de ejercicios extensible.
 
-Genera 2 PDFs A4 en /sessions/elegant-busy-goldberg/mnt/outputs:
-  - "Alumno Ficha 5.pdf"   → versión para el alumno (huecos vacíos).
-  - "Solución Ficha 5.pdf" → versión con las respuestas en ROJO.
+`componer_ficha` recibe una lista de ids de ejercicios activos (ver
+registro `EJERCICIOS` más abajo) y dibuja solo esos, en el orden en
+que aparecen en el registro, con salto de página automático.
 
-Layout (10 ejercicios + Dictado):
-
-  Página 1 (full):
-    1. Claves A
-    2. Intervalos A
-    3+4+5. Tonalidades + Armaduras + Tonos vecinos (1 sistema)
-    6. Semitonos
-    7. Acordes
-
-  Página 2:
-    8. Grados
-    9. QIHE
-    10. Enarmonía
-    --- media carilla ---
-    Dictado (2 pares de pentagramas con ligera separación)
-
-Cada módulo expone `dibujar_en_canvas(c, x_ini, y_top, ..., modo_solucion)`
-que devuelve `y_bottom`. Aquí encadenamos los ejercicios con un gap
-constante entre bloques y forzamos un saltopágina entre el 7 y el 8.
+Para añadir un nuevo ejercicio en el futuro:
+  1. Crear un módulo `generar_xxx.py` con una función
+     `dibujar_en_canvas(c, x, y, ..., num_enunciado, out_pdf_path,
+     ancho_util_mm, modo_solucion)` que devuelva y_bottom.
+  2. Importarlo aquí.
+  3. Escribir una función _dibujar_xxx(...) pequeña que haga el
+     sorteo y llame a `dibujar_en_canvas`.
+  4. Añadir una entrada en el registro `EJERCICIOS`.
+  El selector de la UI y `componer_ficha` lo recogen automáticamente.
 """
 
 import argparse
-import io
-import random
-import re
 from pathlib import Path
 
-import verovio
-from PIL import Image
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 import generar_intervalos as gi
@@ -47,6 +31,7 @@ import generar_acordes as ga
 import generar_grados as gg
 import generar_qihe as gq
 import generar_enarmonias as gen
+import generar_escalas as ges
 
 
 OUT_DIR = Path("/sessions/elegant-busy-goldberg/mnt/outputs")
@@ -54,17 +39,18 @@ OUT_DIR = Path("/sessions/elegant-busy-goldberg/mnt/outputs")
 # Márgenes
 MARGEN_LAT_MM = 25
 ANCHO_UTIL_MM = 160
-
-# Gap vertical entre ejercicios.
 GAP_EJ_MM = 8
 
+# Salto de página automático: si al terminar un ejercicio quedamos por
+# debajo de este umbral (desde el fondo), rompemos antes del siguiente.
+MARGEN_INF_MM = 30
+
 
 # -----------------------------------------------------------------------------
-# Cabecera común a ambas páginas
+# Cabeceras de página
 # -----------------------------------------------------------------------------
 def _dibujar_cabecera(c, titulo):
-    """Cabecera (título + Nombre/Nota) en la parte superior de la página.
-    Devuelve la Y de arranque para el primer ejercicio."""
+    """Cabecera inicial: título grande + campos Nombre/Nota."""
     width, height = A4
     c.setFont("Helvetica-Bold", 18)
     c.drawCentredString(width / 2, height - 22 * mm, titulo)
@@ -77,13 +63,11 @@ def _dibujar_cabecera(c, titulo):
         width - MARGEN_LAT_MM * mm, height - 32 * mm,
         "Nota  _______",
     )
-    # El primer ejercicio arranca 42 mm por debajo del top.
     return height - 42 * mm
 
 
 def _dibujar_cabecera_simple(c, titulo):
-    """Cabecera reducida para páginas interiores: solo título pequeño.
-    Devuelve la Y de arranque para el primer ejercicio de la página."""
+    """Cabecera reducida para páginas interiores."""
     width, height = A4
     c.setFont("Helvetica-Oblique", 9)
     c.drawRightString(width - MARGEN_LAT_MM * mm, height - 12 * mm, titulo)
@@ -91,78 +75,191 @@ def _dibujar_cabecera_simple(c, titulo):
 
 
 # -----------------------------------------------------------------------------
-# Dictado: 2 pares de pentagramas vacíos
+# Dispatchers: uno por cada ejercicio disponible.
+# Todos tienen la misma firma:
+#   (c, x, y_top, seed, num, out_pdf, ancho_util_mm, modo_solucion) -> y_bottom
 # -----------------------------------------------------------------------------
-# Separación entre líneas del pentagrama en los ejercicios: viene del
-# viewBox de verovio (180 uds / K_VB_PER_MM ≈ 2.0 mm). Lo usamos también
-# aquí para que los pentagramas del dictado tengan el MISMO alto de
-# pentagrama que los de los ejercicios.
-DICT_SEP_LINEAS_MM = 180.0 / 90.06
+def _dibujar_claves(c, x, y, seed, num, out_pdf, ancho, sol, modo):
+    items = gc.elegir_claves(n=8, seed=seed)
+    return gc.dibujar_en_canvas(
+        c, x, y, items, modo=modo, num_enunciado=num,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
 
 
-def _dibujar_pentagrama_vacio(c, x_ini, y_top_linea1, ancho_util_mm=160,
-                                grosor=0.3):
-    """Dibuja 5 líneas horizontales de largo `ancho_util_mm` a partir
-    de la Y de la línea 1 (top). Sin clave, sin barras de compás.
-    Devuelve la Y de la línea 5 (bottom)."""
-    c.setLineWidth(grosor)
-    for i in range(5):
-        y = y_top_linea1 - i * DICT_SEP_LINEAS_MM * mm
-        c.line(x_ini, y, x_ini + ancho_util_mm * mm, y)
-    return y_top_linea1 - 4 * DICT_SEP_LINEAS_MM * mm
+def _dibujar_claves_a(c, x, y, seed, num, out_pdf, ancho, sol):
+    return _dibujar_claves(c, x, y, seed, num, out_pdf, ancho, sol, modo="A")
 
 
-def _dibujar_dictado(c, x_ini, y_top, out_pdf_path,
-                      ancho_util_mm=160):
-    """Título 'Dictado' + 2 pares de pentagramas.
-    Pentagrama = 5 líneas horizontales sin clave ni barras. Mismo alto
-    de pentagrama (4 × 2.0 mm = 8 mm) que los ejercicios de la ficha.
-    2 pentagramas pegados (gap pequeño dentro del par) + gap mayor +
-    otros 2 pentagramas (para que el alumno pase a limpio).
+def _dibujar_claves_b(c, x, y, seed, num, out_pdf, ancho, sol):
+    return _dibujar_claves(c, x, y, seed, num, out_pdf, ancho, sol, modo="B")
 
-    Devuelve y_bottom.
-    """
-    # Título
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(x_ini, y_top, "Dictado")
 
-    alto_penta = 4 * DICT_SEP_LINEAS_MM   # mm
-    gap_dentro_par = 8    # espacio cómodo dentro del par para escribir notas
-    gap_entre_pares = 14  # separación CLARA entre los dos pares
+def _dibujar_intervalos(c, x, y, seed, num, out_pdf, ancho, sol, modo):
+    if modo == "A":
+        lista = gi.elegir_intervalos_a(n=8, seed=seed)
+    else:
+        lista = gi.elegir_intervalos(n=8, seed=seed)
+    return gi.dibujar_en_canvas(
+        c, x, y, lista, modo=modo, num_enunciado=num,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
 
-    # Margen por encima de la línea 1 para que las notas altas con líneas
-    # adicionales no se peguen al texto de arriba.
-    margen_sup = 4   # mm
-    y_actual = y_top - (5 + margen_sup) * mm
-    for par_idx in range(2):
-        for penta_idx in range(2):
-            y_linea1 = y_actual
-            y_linea5 = _dibujar_pentagrama_vacio(
-                c, x_ini, y_linea1, ancho_util_mm=ancho_util_mm,
-            )
-            # Reset de color por si el stroke queda en otro.
-            if penta_idx == 0:
-                y_actual = y_linea5 - gap_dentro_par * mm
-            else:
-                y_actual = y_linea5
-        if par_idx == 0:
-            y_actual -= gap_entre_pares * mm
 
-    return y_actual
+def _dibujar_intervalos_a(c, x, y, seed, num, out_pdf, ancho, sol):
+    return _dibujar_intervalos(c, x, y, seed, num, out_pdf, ancho, sol, "A")
+
+
+def _dibujar_intervalos_b(c, x, y, seed, num, out_pdf, ancho, sol):
+    return _dibujar_intervalos(c, x, y, seed, num, out_pdf, ancho, sol, "B")
+
+
+def _dibujar_tonalidades(c, x, y, seed, num, out_pdf, ancho, sol):
+    ton_f, arm = gtav.elegir_tonalidades(n_ton=2, n_arm=2, seed=seed)
+    tonica_tv = gtav.elegir_tonica_tonos_vecinos(
+        excluir_fifths=set(ton_f) | {a[1] for a in arm},
+        seed=seed + 1000,
+    )
+    return gtav.dibujar_en_canvas(
+        c, x, y, ton_f, arm, tonica_tv,
+        num_tonalidades=num, num_armaduras=num + 1, num_tonos_vecinos=num + 2,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
+
+
+def _dibujar_semitonos(c, x, y, seed, num, out_pdf, ancho, sol):
+    ident, comp = gs.elegir_semitonos(seed=seed)
+    return gs.dibujar_en_canvas(
+        c, x, y, ident, comp, num_enunciado=num,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
+
+
+def _dibujar_acordes(c, x, y, seed, num, out_pdf, ancho, sol):
+    ident, comp = ga.elegir_acordes(seed=seed, prob_doble=0.10)
+    return ga.dibujar_en_canvas(
+        c, x, y, ident, comp, num_enunciado=num,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
+
+
+def _dibujar_grados(c, x, y, seed, num, out_pdf, ancho, sol):
+    items = gg.elegir_grados(seed=seed)
+    return gg.dibujar_en_canvas(
+        c, x, y, items, num_enunciado=num,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
+
+
+def _dibujar_qihe(c, x, y, seed, num, out_pdf, ancho, sol):
+    item = gq.elegir_qihe(seed=seed)
+    return gq.dibujar_en_canvas(
+        c, x, y, item, num_enunciado=num,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
+
+
+def _dibujar_enarmonias(c, x, y, seed, num, out_pdf, ancho, sol):
+    items = gen.elegir_enarmonias(seed=seed)
+    return gen.dibujar_en_canvas(
+        c, x, y, items, num_enunciado=num,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
+
+
+def _dibujar_escalas_men(c, x, y, seed, num, out_pdf, ancho, sol):
+    lista = ges.elegir_escalas(seed=seed)
+    return ges.dibujar_en_canvas(
+        c, x, y, lista, num_enunciado=num,
+        out_pdf_path=out_pdf, ancho_util_mm=ancho, modo_solucion=sol,
+    )
 
 
 # -----------------------------------------------------------------------------
-# Composición de la ficha completa
+# Registro extensible de ejercicios
+# -----------------------------------------------------------------------------
+# Cada entrada:
+#   id:          identificador único (usado por la UI y persistencia).
+#   nombre:      etiqueta que verá el usuario en el selector.
+#   disponible:  False para ejercicios en construcción ("próximamente").
+#   fija:        True si no se puede desmarcar en la UI (tonalidades).
+#   fn:          dispatcher (o None si disponible=False).
+#
+# Cómo añadir un ejercicio nuevo (p. ej. "Escalas hexátonas"):
+#   1. Crear generar_hexatonas.py con `elegir_hexatonas(seed)` y
+#      `dibujar_en_canvas(c, x, y, items, num_enunciado, out_pdf_path,
+#      ancho_util_mm, modo_solucion) -> y_bottom`.
+#   2. Importarlo arriba (`import generar_hexatonas as ghx`).
+#   3. Escribir un dispatcher `_dibujar_hexatonas` (8 líneas).
+#   4. Añadir UNA entrada en EJERCICIOS.
+#   El selector de la UI lo recoge automáticamente.
+EJERCICIOS = [
+    {"id": "claves_a",     "nombre": "Claves (A)",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_claves_a},
+    {"id": "claves_b",     "nombre": "Claves (B)",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_claves_b},
+    {"id": "intervalos_a", "nombre": "Intervalos (A)",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_intervalos_a},
+    {"id": "intervalos_b", "nombre": "Intervalos (B)",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_intervalos_b},
+    {"id": "acordes",      "nombre": "Acordes",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_acordes},
+    {"id": "tonalidades",
+     "nombre": "Tonalidades + Armaduras + Tonos vecinos",
+     "disponible": True,  "fija": True,  "n_numeros": 3,
+     "fn": _dibujar_tonalidades},
+    {"id": "grados",       "nombre": "Grados",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_grados},
+    {"id": "qihe",         "nombre": "QIHE",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_qihe},
+    {"id": "escalas_men",  "nombre": "Escalas menores",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_escalas_men},
+    {"id": "enarmonias",   "nombre": "Enarmonías",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_enarmonias},
+    {"id": "semitonos",    "nombre": "Semitono diatónico y cromático",
+     "disponible": True,  "fija": False, "n_numeros": 1,
+     "fn": _dibujar_semitonos},
+]
+
+
+def ejercicios_disponibles():
+    """Lista de ejercicios que se pueden seleccionar en la UI."""
+    return [e for e in EJERCICIOS if e["disponible"]]
+
+
+def ids_fijos():
+    """Ids que deben estar siempre marcados (no desmarcables)."""
+    return {e["id"] for e in EJERCICIOS if e.get("fija")}
+
+
+def ids_por_defecto():
+    """Ids marcados por defecto al abrir la UI: todos los disponibles."""
+    return {e["id"] for e in ejercicios_disponibles()}
+
+
+# -----------------------------------------------------------------------------
+# Composición de la ficha
 # -----------------------------------------------------------------------------
 def componer_ficha(numero_ficha, out_pdf, seed_base=50000,
-                    modo_solucion=False):
-    """Genera una ficha completa (10 ejercicios + dictado) en 2 páginas.
+                   modo_solucion=False, ejercicios_activos=None):
+    """Genera la ficha en PDF.
 
-    `numero_ficha` aparece en el título.
-    `seed_base` fija el sorteo para reproducibilidad. Cada ejercicio usa
-    una seed distinta (seed_base + offset) para que al cambiar seed_base
-    cambie TODA la ficha a la vez.
+    ejercicios_activos: lista de ids (o None → ids_por_defecto()). El
+    orden del registro EJERCICIOS determina el orden de dibujo.
     """
+    if ejercicios_activos is None:
+        ejercicios_activos = ids_por_defecto()
+    ejercicios_activos = set(ejercicios_activos)
+
     out_pdf = Path(out_pdf)
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
 
@@ -175,119 +272,29 @@ def componer_ficha(numero_ficha, out_pdf, seed_base=50000,
         titulo = f"Ficha {numero_ficha}"
         titulo_p2 = f"Ficha {numero_ficha} (cont.)"
 
-    # ---------- SORTEO DE DATOS (una vez, mismo para alumno y solución) ----------
-    items_claves = gc.elegir_claves(n=8, seed=seed_base + 1)
-    lista_intervalos = gi.elegir_intervalos_a(n=8, seed=seed_base + 2)
-    ton_f, arm = gtav.elegir_tonalidades(
-        n_ton=2, n_arm=2, seed=seed_base + 3,
-    )
-    tonica_tv = gtav.elegir_tonica_tonos_vecinos(
-        excluir_fifths=set(ton_f) | {a[1] for a in arm},
-        seed=seed_base + 4,
-    )
-    ident_sem, comp_sem = gs.elegir_semitonos(seed=seed_base + 5)
-    ident_ac, comp_ac = ga.elegir_acordes(seed=seed_base + 6, prob_doble=0.10)
-    items_grados = gg.elegir_grados(seed=seed_base + 7)
-    item_qihe = gq.elegir_qihe(seed=seed_base + 8)
-    items_enarm = gen.elegir_enarmonias(seed=seed_base + 9)
+    # Filtrado en el orden del registro
+    a_dibujar = [
+        e for e in EJERCICIOS
+        if e["disponible"] and e["id"] in ejercicios_activos
+    ]
 
-    # ---------- PÁGINA 1 ----------
     y_actual = _dibujar_cabecera(c, titulo)
+    num_enunciado = 1
 
-    # Ej 1. Claves A
-    y_actual = gc.dibujar_en_canvas(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        items_claves, modo="A", num_enunciado=1,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-        modo_solucion=modo_solucion,
-    )
-    y_actual -= GAP_EJ_MM * mm
+    for i, ej in enumerate(a_dibujar):
+        # Salto de página si lo que queda por dibujar se arriesga a
+        # salir del folio. Heurística: margen inferior mínimo en mm.
+        if y_actual / mm < MARGEN_INF_MM:
+            c.showPage()
+            y_actual = _dibujar_cabecera_simple(c, titulo_p2)
 
-    # Ej 2. Intervalos A
-    y_actual = gi.dibujar_en_canvas(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        lista_intervalos, modo="A", num_enunciado=2,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-        modo_solucion=modo_solucion,
-    )
-    y_actual -= GAP_EJ_MM * mm
-
-    # Ej 3+4+5. Tonalidades + Armaduras + Tonos vecinos (1 línea)
-    y_actual = gtav.dibujar_en_canvas(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        ton_f, arm, tonica_tv,
-        num_tonalidades=3, num_armaduras=4, num_tonos_vecinos=5,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-        modo_solucion=modo_solucion,
-    )
-    y_actual -= GAP_EJ_MM * mm
-
-    # Ej 6. Semitonos
-    y_actual = gs.dibujar_en_canvas(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        ident_sem, comp_sem, num_enunciado=6,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-        modo_solucion=modo_solucion,
-    )
-    y_actual -= GAP_EJ_MM * mm
-
-    # Ej 7. Acordes
-    y_actual = ga.dibujar_en_canvas(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        ident_ac, comp_ac, num_enunciado=7,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-        modo_solucion=modo_solucion,
-    )
-
-    c.showPage()
-
-    # ---------- PÁGINA 2 ----------
-    y_actual = _dibujar_cabecera_simple(c, titulo_p2)
-
-    # Ej 8. Grados
-    y_actual = gg.dibujar_en_canvas(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        items_grados, num_enunciado=8,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-        modo_solucion=modo_solucion,
-    )
-    y_actual -= GAP_EJ_MM * mm
-
-    # Ej 9. QIHE
-    y_actual = gq.dibujar_en_canvas(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        item_qihe, num_enunciado=9,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-        modo_solucion=modo_solucion,
-    )
-    y_actual -= GAP_EJ_MM * mm
-
-    # Ej 10. Enarmonía
-    y_actual = gen.dibujar_en_canvas(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        items_enarm, num_enunciado=10,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-        modo_solucion=modo_solucion,
-    )
-    # Dictado: empujado al fondo de la página para que se vea como
-    # sección aparte. Calculamos una Y fija desde el borde inferior.
-    # Alto total del bloque Dictado: título (~5 mm) + margen_sup (4 mm)
-    # + 4 pentagramas (4 × 8 mm) + gaps (8 + 14 + 8 mm) ≈ 71 mm.
-    # Con ~15 mm de margen inferior → y_top_dictado ≈ 86 mm.
-    _, height = A4
-    y_top_dictado = 88 * mm
-    # Solo usamos la posición calculada si no se solapa con el ej 10;
-    # en caso extremo, caemos al comportamiento anterior.
-    if y_top_dictado < y_actual - GAP_EJ_MM * mm:
-        y_actual = y_top_dictado
-    else:
-        y_actual -= (GAP_EJ_MM + 2) * mm
-
-    # Dictado (bloque final, media carilla)
-    _dibujar_dictado(
-        c, MARGEN_LAT_MM * mm, y_actual,
-        out_pdf_path=out_pdf, ancho_util_mm=ANCHO_UTIL_MM,
-    )
+        y_actual = ej["fn"](
+            c, MARGEN_LAT_MM * mm, y_actual,
+            seed_base + 100 * (i + 1), num_enunciado,
+            out_pdf, ANCHO_UTIL_MM, modo_solucion,
+        )
+        num_enunciado += ej.get("n_numeros", 1)
+        y_actual -= GAP_EJ_MM * mm
 
     c.showPage()
     c.save()
@@ -311,10 +318,10 @@ def main():
 
     print(f"Generando {pdf_alumno.name}")
     componer_ficha(args.num, pdf_alumno,
-                    seed_base=args.seed, modo_solucion=False)
+                   seed_base=args.seed, modo_solucion=False)
     print(f"Generando {pdf_solucion.name}")
     componer_ficha(args.num, pdf_solucion,
-                    seed_base=args.seed, modo_solucion=True)
+                   seed_base=args.seed, modo_solucion=True)
     print("\nListo")
 
 
