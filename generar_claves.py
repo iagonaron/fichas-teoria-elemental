@@ -151,12 +151,14 @@ def elegir_claves(n=8, seed=None, prob_alteracion=0.4, evitar_repes=True):
 # -----------------------------------------------------------------------------
 # MusicXML: un compás independiente por cada elemento
 # -----------------------------------------------------------------------------
-def musicxml_un_compas(clave, step, octave, alter, con_barra_final=True,
+def musicxml_un_compas(clave, step, octave, alter, bar_style="final",
                        n_placeholders=0):
     """MusicXML de UN compás con clef + una redonda.
 
-    - `con_barra_final` añade doble barra final (si queremos un único
-      compás aislado).
+    - `bar_style`: "none" (sin barra), "regular" (barra sencilla) o
+      "final" (doble barra final). Al yuxtaponer compases en reportlab
+      usamos "regular" en los internos y "final" en el último para que
+      se vean las separaciones entre compases.
     - `n_placeholders`: redondas ocultas adicionales para forzar ancho.
     """
     _, sign, line, _, _ = clave
@@ -191,9 +193,12 @@ def musicxml_un_compas(clave, step, octave, alter, con_barra_final=True,
       </note>"""
 
     barra = ""
-    if con_barra_final:
+    if bar_style == "final":
         barra = ('<barline location="right">'
                  '<bar-style>light-heavy</bar-style></barline>')
+    elif bar_style == "regular":
+        barra = ('<barline location="right">'
+                 '<bar-style>regular</bar-style></barline>')
 
     # Tiempo adaptado al contenido (1 redonda + placeholders)
     beats = 4 * (1 + n_placeholders)
@@ -395,10 +400,11 @@ def dibujar_en_canvas(c, x_ini, y_top, items, modo, num_enunciado,
     out_pdf_path = Path(out_pdf_path)
     bloques = []
     for i, (clave, _pos, step, octave, alter) in enumerate(items, start=1):
-        con_barra_final = (i == len(items))
+        # Barra sencilla entre compases, doble barra en el último.
+        bar_style = "final" if i == len(items) else "regular"
         xml = musicxml_un_compas(
             clave, step, octave, alter,
-            con_barra_final=con_barra_final, n_placeholders=0,
+            bar_style=bar_style, n_placeholders=0,
         )
         png_path = out_pdf_path.with_name(
             out_pdf_path.stem + f"_cl_c{i:02d}.png"
@@ -416,11 +422,12 @@ def dibujar_en_canvas(c, x_ini, y_top, items, modo, num_enunciado,
 
     anchos_mm_ideales = [b["vb_w"] / K_VB_PER_MM for b in bloques]
     total_ideal = sum(anchos_mm_ideales)
-    if total_ideal > ancho_util_mm:
-        factor = ancho_util_mm / total_ideal
-        anchos_mm = [a * factor for a in anchos_mm_ideales]
-    else:
-        anchos_mm = list(anchos_mm_ideales)
+    # Estirar SIEMPRE al ancho útil completo, crezca o encoja. Así el
+    # ejercicio ocupa lo mismo que los demás (intervalos, acordes, ...)
+    # y el pentagrama no se ve raquítico cuando las claves salen más
+    # compactas de lo habitual.
+    factor = ancho_util_mm / total_ideal
+    anchos_mm = [a * factor for a in anchos_mm_ideales]
     altos_mm = [a * b["ih"] / b["iw"] for a, b in zip(anchos_mm, bloques)]
     alto_max = max(altos_mm)
 
@@ -463,10 +470,12 @@ def dibujar_en_canvas(c, x_ini, y_top, items, modo, num_enunciado,
                 )
                 c.restoreState()
         else:
+            # Claves B: etiqueta con el NOMBRE de la nota SIN octava
+            # (solo "Sib", "Re", "Sol#"...). Convención fijada por Iago.
             x_nota = x_ini + x_mm * mm + a_mm * mm * b["x_nota_frac"]
             c.drawCentredString(
                 x_nota, y_label,
-                nombre_nota_es(b["step"], b["octave"], b["alter"]),
+                nombre_nota_corto(b["step"], b["alter"]),
             )
 
     return y_label - 2 * mm
