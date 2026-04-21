@@ -1,23 +1,28 @@
 """
-Fichas de Teoría 3ºGe — Generador web
+Fichas de Teoría Elemental — Generador web
 =====================================
 
 App Streamlit para generar en un clic las versiones Alumno y Solución
 de una ficha completa (10 ejercicios + Dictado).
-
-Uso local:
-    pip install -r requirements.txt
-    streamlit run app.py
-
-Despliegue gratuito en Streamlit Community Cloud:
-    https://share.streamlit.io  → "Deploy an app" → repo de GitHub.
 """
 
 import io
 import tempfile
 from pathlib import Path
-page_title="Fichas de Teoría Elemental",
+
 import streamlit as st
+
+# Configurar verovio para encontrar sus fuentes (Bravura, Leipzig, etc.).
+# En Streamlit Cloud el resource path por defecto no funciona; lo ponemos
+# explícito antes de importar cualquier módulo que cree un verovio.toolkit.
+import os as _os
+import verovio as _verovio
+
+_vrv_data = _os.path.join(
+    _os.path.dirname(_os.path.abspath(_verovio.__file__)), "data"
+)
+if _os.path.isdir(_vrv_data):
+    _verovio.setDefaultResourcePath(_vrv_data)
 
 # Los módulos generar_*.py viven al lado de este archivo.
 import generar_ficha as gfi
@@ -32,11 +37,6 @@ st.set_page_config(
 st.title("Fichas de Teoría Elemental")
 st.caption("Generador de fichas para el Conservatorio de A Coruña.")
 
-
-
-# ---------------------------------------------------------------------------
-# Parámetros
-# ---------------------------------------------------------------------------
 col1, col2 = st.columns(2)
 
 with col1:
@@ -57,73 +57,4 @@ with col2:
 generar = st.button("Generar ficha", type="primary", use_container_width=True)
 
 
-# ---------------------------------------------------------------------------
-# Generación
-# ---------------------------------------------------------------------------
-def _gen_pdf_bytes(numero_ficha: int, seed_base: int,
-                   modo_solucion: bool) -> bytes:
-    """Genera el PDF en un fichero temporal y devuelve sus bytes."""
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / (
-            "solucion.pdf" if modo_solucion else "alumno.pdf"
-        )
-        gfi.componer_ficha(
-            numero_ficha=numero_ficha,
-            out_pdf=out,
-            seed_base=seed_base,
-            modo_solucion=modo_solucion,
-        )
-        return out.read_bytes()
-
-
-if generar:
-    with st.spinner("Generando fichas…"):
-        try:
-            pdf_alumno = _gen_pdf_bytes(
-                int(numero), int(seed), modo_solucion=False,
-            )
-            pdf_solucion = _gen_pdf_bytes(
-                int(numero), int(seed), modo_solucion=True,
-            )
-        except Exception as e:
-            st.error(f"Error generando la ficha: {e}")
-            st.stop()
-
-    st.success("Listo. Descarga debajo los dos PDFs.")
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.download_button(
-            label="Descargar Alumno",
-            data=pdf_alumno,
-            file_name=f"Ficha {numero} — Alumno.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
-    with c2:
-        st.download_button(
-            label="Descargar Solución",
-            data=pdf_solucion,
-            file_name=f"Ficha {numero} — Solución.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
-
-    # Previsualización rápida (página 1 del alumno)
-    with st.expander("Vista previa (página 1 — Alumno)"):
-        try:
-            from pdf2image import convert_from_bytes
-            imgs = convert_from_bytes(pdf_alumno, dpi=110, first_page=1,
-                                      last_page=1)
-            st.image(imgs[0])
-        except Exception as e:
-            st.info(
-                "Previsualización no disponible en este entorno "
-                f"({e}). Descarga el PDF para verlo."
-            )
-
-st.markdown("---")
-st.caption(
-    "Proyecto personal de Iago. Los sorteos son reproducibles con la "
-    "semilla. Si un ejercicio sale raro, prueba con otra semilla."
-)
+def _gen_pdf_bytes(numero_
