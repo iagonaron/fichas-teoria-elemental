@@ -445,11 +445,7 @@ def svg_a_png_bytes(svg_text, ancho_pixeles):
         bytestring=svg_text.encode("utf-8"),
         output_width=ancho_pixeles,
     )
-    """Convierte SVG (string) a PNG bytes con el ancho deseado."""
-    return cairosvg.svg2png(
-        bytestring=svg_text.encode("utf-8"),
-        output_width=ancho_pixeles,
-    )
+    
 
 
 def _render_intervalos_png(lista_intervalos, modo, png_path,
