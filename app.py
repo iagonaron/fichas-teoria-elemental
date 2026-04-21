@@ -33,14 +33,6 @@ st.title("Fichas de Teoría Elemental")
 st.caption("Generador de fichas para el Conservatorio de A Coruña.")
 
 
-st.set_page_config(
-    page_title="Fichas de Teoría 3ºGe",
-    page_icon="🎼",
-    layout="centered",
-)
-
-st.title("Fichas de Teoría 3ºGe")
-st.caption("Generador de fichas para el Conservatorio de A Coruña.")
 
 # ---------------------------------------------------------------------------
 # Parámetros
