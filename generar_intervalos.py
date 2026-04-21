@@ -427,23 +427,27 @@ def render_svg(musicxml, svg_path):
 def svg_a_png_bytes(svg_text, ancho_pixeles):
     """Convierte SVG (string) a PNG bytes con el ancho deseado.
 
-    cairosvg >= 2.7 a veces lanza 'The SVG size is undefined' con los
-    SVG de verovio. Forzamos width/height desde el viewBox antes de
-    entregar el SVG a cairosvg.
+    Verovio emite <svg width="164px" height="77px"> sin viewBox. Algunas
+    combinaciones de cairosvg + libcairo (p.ej. Streamlit Cloud) lanzan
+    'The SVG size is undefined' con ese formato. Saneamos el <svg> raíz:
+    quitamos unidades de width/height y añadimos un viewBox explícito.
     """
-    vb = re.search(r'viewBox="([\d\.\-\s]+)"', svg_text)
-    if vb:
-        partes = vb.group(1).split()
-        if len(partes) == 4:
-            _, _, w, h = partes
-            # Quitamos width/height existentes
-            svg_text = re.sub(r'\swidth="[^"]*"', '', svg_text, count=1)
-            svg_text = re.sub(r'\sheight="[^"]*"', '', svg_text, count=1)
-            # Inyectamos width/height nuevos en el <svg> raíz
-            svg_text = re.sub(
-                r'<svg\b',
-                f'<svg width="{w}" height="{h}"',
-                svg_text, count=1,
+    m = re.search(r'<svg\b([^>]*)>', svg_text)
+    if m:
+        attrs = m.group(1)
+        w_m = re.search(r'\swidth="([0-9.]+)(px|mm|cm|pt|in)?"', attrs)
+        h_m = re.search(r'\sheight="([0-9.]+)(px|mm|cm|pt|in)?"', attrs)
+        if w_m and h_m:
+            w = float(w_m.group(1))
+            h = float(h_m.group(1))
+            nuevos = re.sub(
+                r'\s(width|height|viewBox)="[^"]*"', '', attrs,
+            )
+            svg_text = svg_text.replace(
+                m.group(0),
+                f'<svg width="{w:g}" height="{h:g}" '
+                f'viewBox="0 0 {w:g} {h:g}"{nuevos}>',
+                1,
             )
     return cairosvg.svg2png(
         bytestring=svg_text.encode("utf-8"),
