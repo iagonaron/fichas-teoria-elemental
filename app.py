@@ -53,6 +53,10 @@ DEFAULTS = {
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 
+# Semilla inicial aleatoria para cada nueva sesión (cada vez que se abre
+# la web). Una vez generada, el usuario puede cambiarla a mano o dejarla.
+st.session_state.setdefault("seed_inicial", random.randint(1, 999999))
+
 # Selección de ejercicios (persistida). Marca inicial = ids_por_defecto()
 _ids_default = gfi.ids_por_defecto()
 for ej in gfi.ejercicios_disponibles():
@@ -63,7 +67,7 @@ for ej in gfi.ejercicios_disponibles():
 # -----------------------------------------------------------------------------
 # Parámetros básicos
 # -----------------------------------------------------------------------------
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns([3, 3, 1])
 
 with col1:
     numero = st.number_input(
@@ -73,12 +77,24 @@ with col1:
 
 with col2:
     seed = st.number_input(
-        "Semilla (seed)", min_value=1, max_value=999999, value=50000, step=1,
+        "Semilla (seed)", min_value=1, max_value=999999,
+        value=st.session_state["seed_inicial"], step=1, key="seed_widget",
         help=(
             "Controla los sorteos. Dos fichas con la misma semilla son "
-            "idénticas. Cámbiala para generar una ficha nueva."
+            "idénticas. Al abrir la web se genera una nueva al azar; "
+            "puedes cambiarla a mano o pulsar el dado para otra."
         ),
     )
+
+with col3:
+    # Alineación visual con los number_input (que llevan label arriba).
+    st.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
+    if st.button("🎲", help="Nueva semilla al azar",
+                 use_container_width=True):
+        st.session_state["seed_inicial"] = random.randint(1, 999999)
+        # Borra el widget para que tome el valor nuevo en el próximo render
+        st.session_state.pop("seed_widget", None)
+        st.rerun()
 
 
 # -----------------------------------------------------------------------------
