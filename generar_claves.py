@@ -378,6 +378,35 @@ def _render_compas_png(xml, png_path, ocultar_clave=False):
             fondo.paste(im_rgba, (0, 0), mask=im_rgba.split()[3])
         else:
             fondo = im_rgba.convert("RGB")
+
+        # Recorte vertical al bounding box del contenido. Verovio deja
+        # mucho margen vertical en un compás aislado (espacio para
+        # ledger lines que no se usan), y al componer los 8 PNG lado
+        # a lado al ancho útil del PDF (≈20mm/compás), ese margen hacía
+        # que el pentagrama se viese más pequeño que el del resto de
+        # ejercicios. Recortando dejamos un ratio iw/ih parecido al de
+        # Intervalos (≈6:1) → el pentagrama queda del mismo alto.
+        gris = fondo.convert("L")
+        # Máscara con 255 en píxeles de contenido (no-blancos) y 0 en
+        # fondo. PIL.getbbox() devuelve el bbox de píxeles != 0 → el
+        # contenido real. Recorte vertical generoso: verovio reserva
+        # mucho espacio arriba/abajo del pentagrama por si hay ledger
+        # lines que en un solo compás no aparecen.
+        mascara = gris.point(lambda v: 255 if v < 250 else 0)
+        bbox_contenido = mascara.getbbox()
+        if bbox_contenido is not None:
+            _, top, _, bottom = bbox_contenido
+            # Margen vertical: 35 % del alto del bbox. Así las notas con
+            # 1-2 líneas adicionales no quedan pegadas al borde, y el
+            # pentagrama sigue ocupando una proporción decente del PNG.
+            alto_bbox = bottom - top
+            margen_px = max(12, int(alto_bbox * 0.35))
+            top = max(0, top - margen_px)
+            bottom = min(fondo.size[1], bottom + margen_px)
+            # Recorte SOLO vertical (conservamos ancho completo para no
+            # romper las coordenadas horizontales x_centro_frac / x_nota_frac).
+            fondo = fondo.crop((0, top, fondo.size[0], bottom))
+
         fondo.save(png_path, "PNG")
 
     return vb_w, x_centro_frac, x_nota_frac
@@ -420,15 +449,18 @@ def dibujar_en_canvas(c, x_ini, y_top, items, modo, num_enunciado,
             "img": img, "iw": iw, "ih": ih, "png": png_path,
         })
 
-    anchos_mm_ideales = [b["vb_w"] / K_VB_PER_MM for b in bloques]
-    total_ideal = sum(anchos_mm_ideales)
-    # Estirar SIEMPRE al ancho útil completo, crezca o encoja. Así el
-    # ejercicio ocupa lo mismo que los demás (intervalos, acordes, ...)
-    # y el pentagrama no se ve raquítico cuando las claves salen más
-    # compactas de lo habitual.
-    factor = ancho_util_mm / total_ideal
-    anchos_mm = [a * factor for a in anchos_mm_ideales]
-    altos_mm = [a * b["ih"] / b["iw"] for a, b in zip(anchos_mm, bloques)]
+    # Estrategia de tamaño: fijamos el ALTO del PNG de cada compás a un
+    # valor consistente con el resto de ejercicios (≈ intervalos). Los
+    # anchos se derivan del aspect ratio del PNG recortado. Si la suma
+    # de anchos excede el ancho útil, reducimos todo proporcionalmente.
+    # Si queda corta, estiramos. Así el PENTAGRAMA siempre tiene el
+    # mismo alto visual independientemente del contenido interno.
+    ALTO_OBJETIVO_MM = 20.0
+    anchos_ar = [ALTO_OBJETIVO_MM * b["iw"] / b["ih"] for b in bloques]
+    total_ar = sum(anchos_ar)
+    factor = ancho_util_mm / total_ar
+    anchos_mm = [a * factor for a in anchos_ar]
+    altos_mm = [ALTO_OBJETIVO_MM * factor] * len(bloques)
     alto_max = max(altos_mm)
 
     c.setFont("Helvetica-Bold", 12)
