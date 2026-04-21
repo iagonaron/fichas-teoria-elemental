@@ -53,11 +53,11 @@ DEFAULTS = {
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 
-# Selección de ejercicios (persistida)
+# Selección de ejercicios (persistida). Marca inicial = ids_por_defecto()
+_ids_default = gfi.ids_por_defecto()
 for ej in gfi.ejercicios_disponibles():
     key = f"sel_{ej['id']}"
-    # Por defecto, todos los disponibles están marcados.
-    st.session_state.setdefault(key, True)
+    st.session_state.setdefault(key, ej["id"] in _ids_default)
 
 
 # -----------------------------------------------------------------------------
@@ -89,12 +89,12 @@ st.markdown("### Ejercicios")
 ejs = gfi.ejercicios_disponibles()
 ids_opcionales = [e["id"] for e in ejs if not e.get("fija")]
 
-# Botón aleatorio: propone 9 opcionales + el fijo (tonalidades).
-# El usuario puede editar la selección después.
+# Botón aleatorio: propone 7 opcionales + el fijo (tonalidades vale 3)
+# = 10 ejercicios en total. El usuario puede editar después.
 _b1, _b2 = st.columns([1, 1])
 with _b1:
     if st.button("🎲 Proponer aleatorio", use_container_width=True):
-        n_opcionales = min(9, len(ids_opcionales))
+        n_opcionales = min(7, len(ids_opcionales))
         elegidos = set(random.sample(ids_opcionales, n_opcionales))
         for eid in ids_opcionales:
             st.session_state[f"sel_{eid}"] = eid in elegidos
@@ -120,12 +120,19 @@ for i, ej in enumerate(ejs):
         else:
             st.checkbox(ej["nombre"], key=key)
 
-# Resumen de ejercicios seleccionados
+# Resumen de ejercicios seleccionados. Tonalidades cuenta como 3 porque
+# abarca Tonalidades + Armaduras + Tonos vecinos.
 ids_activos = [
     ej["id"] for ej in ejs
     if st.session_state.get(f"sel_{ej['id']}", False) or ej.get("fija")
 ]
-st.caption(f"Seleccionados: **{len(ids_activos)}** ejercicios")
+total_ejercicios = sum(
+    ej.get("n_numeros", 1) for ej in ejs if ej["id"] in ids_activos
+)
+st.caption(
+    f"Seleccionados: **{total_ejercicios}** ejercicios "
+    f"(Tonalidades + Armaduras + Tonos vecinos cuentan como 3)"
+)
 
 
 # -----------------------------------------------------------------------------
