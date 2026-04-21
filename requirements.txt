@@ -1,0 +1,5 @@
+streamlit>=1.36
+verovio>=4.0
+reportlab>=4.0
+Pillow>=10.0
+pdf2image>=1.17
