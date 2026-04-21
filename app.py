@@ -20,7 +20,17 @@ page_title="Fichas de Teoría Elemental",
 import streamlit as st
 
 # Los módulos generar_*.py viven al lado de este archivo.
-import generar_ficha as gfi st.title("Fichas de Teoría Elemental")
+import generar_ficha as gfi
+
+
+st.set_page_config(
+    page_title="Fichas de Teoría Elemental",
+    page_icon="🎼",
+    layout="centered",
+)
+
+st.title("Fichas de Teoría Elemental")
+st.caption("Generador de fichas para el Conservatorio de A Coruña.")
 
 
 st.set_page_config(
