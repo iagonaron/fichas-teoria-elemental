@@ -302,7 +302,10 @@ def _render_png(xml, png_path, padding_inf_mm=9):
         "scale": 35,
         "spacingStaff": 8,
         "spacingSystem": 8,
-        "spacingNonLinear": 0.6,
+        # snl=0.55 da un ancho natural ~180mm para 4 compases × 3 notas.
+        # Con snl=0.6 (default en otros ejercicios) salía 240mm y al
+        # escalar a 160mm el pentagrama quedaba demasiado bajo.
+        "spacingNonLinear": 0.55,
         "spacingLinear": 0.25,
         "adjustPageHeight": True,
         "adjustPageWidth": True,
@@ -374,10 +377,11 @@ def dibujar_en_canvas(c, x_ini, y_top, items, num_enunciado,
     centros, x_notas_frac, ancho_mm_natural = _render_png(xml, png_path)
     img = ImageReader(str(png_path))
     iw, ih = img.getSize()
-    # Ancho en PDF: siempre ocupar todo el ancho útil, idéntico en alumno
-    # y solución. El PNG se genera proporcional al ancho natural y luego
-    # se escala; así el pentagrama nunca "encoge" en la versión solución.
-    ancho_pdf_mm = ancho_util_mm
+    # Patrón QIHE/grados: mantener escala natural cuando cabe, reducir
+    # solo si el contenido natural supera el ancho útil. Así el staff
+    # preserva su altura visual coherente con los demás ejercicios.
+    factor = min(1.0, ancho_util_mm / ancho_mm_natural)
+    ancho_pdf_mm = ancho_mm_natural * factor
     alto_mm = ancho_pdf_mm * ih / iw
 
     # Título del ejercicio
@@ -385,9 +389,10 @@ def dibujar_en_canvas(c, x_ini, y_top, items, num_enunciado,
     c.setFont("Helvetica-Bold", 12)
     c.drawString(x_ini, y_titulo, f"{num_enunciado}. Enarmonía")
 
-    # Pentagrama
+    # Pentagrama centrado horizontalmente
+    x_img = x_ini + (ancho_util_mm - ancho_pdf_mm) * mm / 2
     y_img = y_titulo - 6 * mm - alto_mm * mm
-    c.drawImage(img, x_ini, y_img, width=ancho_pdf_mm * mm,
+    c.drawImage(img, x_img, y_img, width=ancho_pdf_mm * mm,
                 height=alto_mm * mm)
 
     # Alumno: SIN líneas de respuesta — escribe en el hueco debajo
