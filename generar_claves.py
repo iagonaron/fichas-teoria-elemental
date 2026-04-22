@@ -149,27 +149,39 @@ def elegir_claves(n=8, seed=None, prob_alteracion=0.4, evitar_repes=True):
 
 
 # -----------------------------------------------------------------------------
-# MusicXML: un compás independiente por cada elemento
+# MusicXML: TODOS los compases en un mismo part. Cada compás declara su
+# propia clef en <attributes>, de modo que cada nota se lee con su clave.
+# Verovio NO añade clave de cortesía entre compases de un mismo sistema,
+# así que este enfoque —idéntico al de intervalos— nos da un pentagrama
+# único con clef distintas por compás. Renderizando todo junto en un solo
+# PNG obtenemos el mismo tamaño de pentagrama que el resto de ejercicios.
 # -----------------------------------------------------------------------------
-def musicxml_un_compas(clave, step, octave, alter, bar_style="final",
-                       n_placeholders=0):
-    """MusicXML de UN compás con clef + una redonda.
+def musicxml_ejercicio_claves(items):
+    """MusicXML con n compases: cada compás trae su <clef>, una redonda y
+    una barra sencilla al final (doble barra en el último)."""
+    n = len(items)
+    measures = []
+    for i, (clave, _pos, step, octave, alter) in enumerate(items, start=1):
+        _, sign, line, _, _ = clave
+        alter_xml = f"<alter>{alter}</alter>" if alter else ""
+        accidental_xml = ""
+        if alter == 1:
+            accidental_xml = "<accidental>sharp</accidental>"
+        elif alter == -1:
+            accidental_xml = "<accidental>flat</accidental>"
 
-    - `bar_style`: "none" (sin barra), "regular" (barra sencilla) o
-      "final" (doble barra final). Al yuxtaponer compases en reportlab
-      usamos "regular" en los internos y "final" en el último para que
-      se vean las separaciones entre compases.
-    - `n_placeholders`: redondas ocultas adicionales para forzar ancho.
-    """
-    _, sign, line, _, _ = clave
-    alter_xml = f"<alter>{alter}</alter>" if alter else ""
-    accidental_xml = ""
-    if alter == 1:
-        accidental_xml = "<accidental>sharp</accidental>"
-    elif alter == -1:
-        accidental_xml = "<accidental>flat</accidental>"
+        attrs_base = ""
+        if i == 1:
+            # Primer compás: divisions + key + time (ocultos).
+            attrs_base = """
+        <divisions>4</divisions>
+        <key><fifths>0</fifths></key>
+        <time print-object="no"><beats>4</beats><beat-type>4</beat-type></time>"""
+        attrs = f"""<attributes>{attrs_base}
+        <clef><sign>{sign}</sign><line>{line}</line></clef>
+      </attributes>"""
 
-    nota = f"""
+        nota = f"""
       <note>
         <pitch>
           <step>{step}</step>
@@ -181,27 +193,18 @@ def musicxml_un_compas(clave, step, octave, alter, bar_style="final",
         {accidental_xml}
       </note>"""
 
-    # Placeholder ocultos en C4 — a verovio solo le interesa que existan
-    # para reservar ancho; no se imprimen.
-    placeholders = ""
-    for _ in range(n_placeholders):
-        placeholders += """
-      <note print-object="no">
-        <pitch><step>C</step><octave>4</octave></pitch>
-        <duration>16</duration>
-        <type>whole</type>
-      </note>"""
+        if i == n:
+            barra = ('<barline location="right">'
+                     '<bar-style>light-heavy</bar-style></barline>')
+        else:
+            barra = ('<barline location="right">'
+                     '<bar-style>regular</bar-style></barline>')
 
-    barra = ""
-    if bar_style == "final":
-        barra = ('<barline location="right">'
-                 '<bar-style>light-heavy</bar-style></barline>')
-    elif bar_style == "regular":
-        barra = ('<barline location="right">'
-                 '<bar-style>regular</bar-style></barline>')
-
-    # Tiempo adaptado al contenido (1 redonda + placeholders)
-    beats = 4 * (1 + n_placeholders)
+        measures.append(f"""
+    <measure number="{i}">{attrs}{nota}
+      {barra}
+    </measure>""")
+    measures_xml = "".join(measures)
 
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
@@ -209,16 +212,7 @@ def musicxml_un_compas(clave, step, octave, alter, bar_style="final",
   <part-list>
     <score-part id="P1"><part-name></part-name></score-part>
   </part-list>
-  <part id="P1">
-    <measure number="1">
-      <attributes>
-        <divisions>4</divisions>
-        <key><fifths>0</fifths></key>
-        <time print-object="no"><beats>{beats}</beats><beat-type>4</beat-type></time>
-        <clef><sign>{sign}</sign><line>{line}</line></clef>
-      </attributes>{nota}{placeholders}
-      {barra}
-    </measure>
+  <part id="P1">{measures_xml}
   </part>
 </score-partwise>"""
 
@@ -269,100 +263,102 @@ def _inyectar_puntos_claves_do(svg):
     return pattern.sub(repl, svg)
 
 
-def _render_compas_png(xml, png_path, ocultar_clave=False):
-    """Renderiza un compás a PNG y devuelve dict:
-      - vb_w: anchura del viewBox verovio (para convertir a mm con K).
-      - x_centro_frac: fracción 0..1 del centro del compás (entre clave
-        y barra) dentro del PNG.
-      - x_nota_frac: fracción 0..1 de la POSICIÓN HORIZONTAL DE LA NOTA
-        (notehead) dentro del PNG. La usamos para alinear la etiqueta
-        justo debajo de la nota en Claves B.
+def _render_claves_png(items, png_path, ocultar_claves=False,
+                        ancho_util_mm=160):
+    """Renderiza TODOS los compases del ejercicio en UN SOLO PNG (igual
+    que Intervalos). Devuelve `(centros_x, anclas_nota, iw, ih)`:
 
-    Si `ocultar_clave` es True, se eliminan del SVG los grupos
-    `<g class="clef">...</g>` antes de convertir a PNG. El espacio
-    horizontal queda reservado → el alumno escribe la clave ahí.
+      - centros_x: lista de fracciones 0..1 (relativas al ancho del PNG)
+        con el centro visual de cada compás (entre el final de la clave
+        y la barra de cierre). Se usa en modo A para colocar la línea
+        "______" y el nombre en rojo.
+      - anclas_nota: fracciones 0..1 con la X del notehead de cada
+        compás. Se usa en modo B para alinear la etiqueta bajo la nota.
+      - iw, ih: tamaño en píxeles del PNG (para calcular el aspect ratio
+        en la composición PDF).
+
+    Si `ocultar_claves` es True, elimina del SVG los grupos
+    `<g class="clef">...</g>` antes de rasterizar. El hueco horizontal
+    queda reservado: el alumno dibuja la clave.
     """
+    xml = musicxml_ejercicio_claves(items)
+    n = len(items)
+
     tk = verovio.toolkit()
     tk.setOptions({
-        "pageWidth": 2100,
-        "pageHeight": 2970,
+        "pageWidth": 2100, "pageHeight": 2970,
         "pageMarginTop": 20, "pageMarginBottom": 20,
-        # Márgenes horizontales a 0: cuando yuxtaponemos los 8 PNG en el
-        # PDF, las líneas del pentagrama se tienen que tocar. Si dejamos
-        # márgenes, aparecen huecos blancos entre compases.
-        "pageMarginLeft": 0, "pageMarginRight": 0,
+        "pageMarginLeft": 20, "pageMarginRight": 20,
         "scale": 35,
-        "spacingStaff": 8,
-        "spacingSystem": 8,
+        "spacingStaff": 8, "spacingSystem": 8,
         "spacingNonLinear": 0.6,
         "spacingLinear": 0.25,
-        "adjustPageHeight": True,
-        "adjustPageWidth": True,
-        "barLineWidth": 0.3,
-        "staffLineWidth": 0.2,
-        "header": "none",
-        "footer": "none",
-        "breaks": "none",
+        "adjustPageHeight": True, "adjustPageWidth": True,
+        "barLineWidth": 0.3, "staffLineWidth": 0.2,
+        "header": "none", "footer": "none",
     })
     tk.loadData(xml)
     tk.redoLayout()
     svg = tk.renderToSVG(1)
 
-    # viewBox width (coordenadas internas de verovio)
+    # viewBox y page-margin
     vb_match = re.search(
         r'class="definition-scale"[^>]*viewBox="([\d\s\.\-]+)"', svg
     )
     vb_w = float(vb_match.group(1).split()[2]) if vb_match else 10000.0
-
-    # page-margin offset
     pm_match = re.search(
         r'class="page-margin"[^>]*transform="translate\((\-?[\d\.]+),\s*(\-?[\d\.]+)\)"',
         svg,
     )
     pm_x = float(pm_match.group(1)) if pm_match else 0.0
 
-    # X de la barra final (debería ser una sola en un compás aislado)
-    barras = sorted(
+    # Barras — agrupamos las muy juntas (la doble final son 2 líneas)
+    barras_raw = sorted(
         float(m.group(1))
         for m in re.finditer(r'class="barLine">\s*<path d="M(\-?[\d\.]+)\s', svg)
     )
     agrup = []
-    for b in barras:
-        if agrup and abs(b - agrup[-1]) < 80:
+    for b in barras_raw:
+        if agrup and abs(b - agrup[-1]) < 60:
             agrup[-1] = (agrup[-1] + b) / 2
         else:
             agrup.append(b)
-    x_barra = agrup[0] if agrup else vb_w
 
-    # X del final de la clave
-    clef_m = re.search(
-        r'class="clef">\s*<use [^>]*transform="translate\((\-?[\d\.]+),',
-        svg,
-    )
-    x_clef = float(clef_m.group(1)) if clef_m else 0.0
-    ANCHO_CLEF = 300
-    inicio = x_clef + ANCHO_CLEF
+    # Posición X de cada clave (una por compás, en el mismo orden).
+    claves_x = [
+        float(m.group(1))
+        for m in re.finditer(
+            r'class="clef">\s*<use [^>]*transform="translate\((\-?[\d\.]+),',
+            svg,
+        )
+    ]
+    ANCHO_CLEF = 500
 
-    x_centro_vb = pm_x + (inicio + x_barra) / 2
-    x_centro_frac = x_centro_vb / vb_w
+    # Centros horizontales de cada compás dentro del viewBox.
+    # Compás i: entre la CLAVE i (final) y la barra i.
+    centros_x = []
+    for i in range(n):
+        x_clave_fin = (claves_x[i] + ANCHO_CLEF) if i < len(claves_x) else 0
+        x_barra = agrup[i] if i < len(agrup) else vb_w
+        centros_x.append((pm_x + (x_clave_fin + x_barra) / 2) / vb_w)
 
-    # X del notehead (para alinear la etiqueta justo debajo de la nota
-    # en Claves B). Cogemos el PRIMER notehead visible (solo hay uno por
-    # compás en este ejercicio).
-    nota_m = re.search(
-        r'class="notehead"[^>]*>\s*<use[^>]*transform="translate\((\-?[\d\.]+),',
-        svg,
-    )
-    x_nota_vb = float(nota_m.group(1)) if nota_m else x_centro_vb
-    x_nota_frac = (pm_x + x_nota_vb) / vb_w
+    # X del notehead de cada compás (1 por compás).
+    notas_x_vb = [
+        float(m.group(1))
+        for m in re.finditer(
+            r'class="notehead"[^>]*>\s*<use[^>]*transform="translate\((\-?[\d\.]+),',
+            svg,
+        )
+    ]
+    anclas_nota = [(pm_x + x) / vb_w for x in notas_x_vb]
+    while len(anclas_nota) < n:
+        anclas_nota.append(centros_x[len(anclas_nota)])
 
-    # Claves de Do: añadimos los 2 puntitos tradicionales que marcan la
-    # línea donde se sitúa la clave (las de Fa ya los llevan incorporados
-    # en el glifo SMuFL E062; las de Sol no los llevan nunca).
+    # Puntitos en claves de Do
     svg = _inyectar_puntos_claves_do(svg)
 
-    if ocultar_clave:
-        # Quitamos el GLIFO de la clave, NO su hueco en el layout.
+    if ocultar_claves:
+        # Quitar el GLIFO de cada clave (no su hueco en el layout).
         svg = re.sub(
             r'<g[^>]*class="clef"[^>]*>.*?</g>',
             '',
@@ -370,46 +366,24 @@ def _render_compas_png(xml, png_path, ocultar_clave=False):
             flags=re.DOTALL,
         )
 
-    ancho_pix = 1400
+    # Rasterizar al ancho útil con padding inferior (igual que intervalos)
+    dpi = 300
+    ancho_pix = int(ancho_util_mm / 25.4 * dpi)
+    padding_inf_mm = 6
+    padding_inf_px = int(padding_inf_mm / 25.4 * dpi)
     png_bytes = gi.svg_a_png_bytes(svg, ancho_pix)
     with Image.open(io.BytesIO(png_bytes)) as im_rgba:
+        w0, h0 = im_rgba.size
+        fondo = Image.new("RGB", (w0, h0 + padding_inf_px), (255, 255, 255))
         if im_rgba.mode == "RGBA":
-            fondo = Image.new("RGB", im_rgba.size, (255, 255, 255))
             fondo.paste(im_rgba, (0, 0), mask=im_rgba.split()[3])
         else:
-            fondo = im_rgba.convert("RGB")
-
-        # Recorte vertical al bounding box del contenido. Verovio deja
-        # mucho margen vertical en un compás aislado (espacio para
-        # ledger lines que no se usan), y al componer los 8 PNG lado
-        # a lado al ancho útil del PDF (≈20mm/compás), ese margen hacía
-        # que el pentagrama se viese más pequeño que el del resto de
-        # ejercicios. Recortando dejamos un ratio iw/ih parecido al de
-        # Intervalos (≈6:1) → el pentagrama queda del mismo alto.
-        gris = fondo.convert("L")
-        # Máscara con 255 en píxeles de contenido (no-blancos) y 0 en
-        # fondo. PIL.getbbox() devuelve el bbox de píxeles != 0 → el
-        # contenido real. Recorte vertical generoso: verovio reserva
-        # mucho espacio arriba/abajo del pentagrama por si hay ledger
-        # lines que en un solo compás no aparecen.
-        mascara = gris.point(lambda v: 255 if v < 250 else 0)
-        bbox_contenido = mascara.getbbox()
-        if bbox_contenido is not None:
-            _, top, _, bottom = bbox_contenido
-            # Margen vertical: 35 % del alto del bbox. Así las notas con
-            # 1-2 líneas adicionales no quedan pegadas al borde, y el
-            # pentagrama sigue ocupando una proporción decente del PNG.
-            alto_bbox = bottom - top
-            margen_px = max(12, int(alto_bbox * 0.35))
-            top = max(0, top - margen_px)
-            bottom = min(fondo.size[1], bottom + margen_px)
-            # Recorte SOLO vertical (conservamos ancho completo para no
-            # romper las coordenadas horizontales x_centro_frac / x_nota_frac).
-            fondo = fondo.crop((0, top, fondo.size[0], bottom))
-
+            fondo.paste(im_rgba, (0, 0))
         fondo.save(png_path, "PNG")
 
-    return vb_w, x_centro_frac, x_nota_frac
+    img = ImageReader(str(png_path))
+    iw, ih = img.getSize()
+    return centros_x, anclas_nota, iw, ih
 
 
 # -----------------------------------------------------------------------------
@@ -420,94 +394,78 @@ def dibujar_en_canvas(c, x_ini, y_top, items, modo, num_enunciado,
     """Dibuja el ejercicio de Claves en `c` a partir de `y_top`.
     Devuelve `y_bottom`.
 
-    - modo "A": clave visible, etiqueta "______" debajo (o nombre en rojo
-      en modo solución).
-    - modo "B": clave oculta, etiqueta con nombre de la nota impresa
-      siempre en negro (el alumno dibuja la clave, no hay "respuesta"
-      textual). No usamos modo B en Ficha 5 pero se mantiene la API.
+    Arquitectura idéntica a Intervalos: UN SOLO PNG con todos los
+    compases en el mismo sistema. Así el pentagrama tiene exactamente
+    la misma pinta (altura, grosor de línea) que el resto de ejercicios
+    y los compases quedan uniformes, sin el efecto "chapuza" de
+    componer PNGs individuales con ratios distintos.
+
+    - modo "A": clave visible, línea "______" bajo cada compás
+      (nombre en rojo sobre la línea en modo solución).
+    - modo "B": clave oculta, etiqueta con el nombre de la nota bajo
+      el notehead. Sin octava ("Sib", "Re", "Sol#"...).
     """
     out_pdf_path = Path(out_pdf_path)
-    bloques = []
-    for i, (clave, _pos, step, octave, alter) in enumerate(items, start=1):
-        # Barra sencilla entre compases, doble barra en el último.
-        bar_style = "final" if i == len(items) else "regular"
-        xml = musicxml_un_compas(
-            clave, step, octave, alter,
-            bar_style=bar_style, n_placeholders=0,
-        )
-        png_path = out_pdf_path.with_name(
-            out_pdf_path.stem + f"_cl_c{i:02d}.png"
-        )
-        vb_w, xcf, xnf = _render_compas_png(
-            xml, png_path, ocultar_clave=(modo == "B"),
-        )
-        img = ImageReader(str(png_path))
-        iw, ih = img.getSize()
-        bloques.append({
-            "clave": clave, "step": step, "octave": octave, "alter": alter,
-            "vb_w": vb_w, "x_centro_frac": xcf, "x_nota_frac": xnf,
-            "img": img, "iw": iw, "ih": ih, "png": png_path,
-        })
+    png_path = out_pdf_path.with_name(out_pdf_path.stem + "_cl.png")
 
-    # Estrategia de tamaño: fijamos el ALTO del PNG de cada compás a un
-    # valor consistente con el resto de ejercicios (≈ intervalos). Los
-    # anchos se derivan del aspect ratio del PNG recortado. Si la suma
-    # de anchos excede el ancho útil, reducimos todo proporcionalmente.
-    # Si queda corta, estiramos. Así el PENTAGRAMA siempre tiene el
-    # mismo alto visual independientemente del contenido interno.
-    ALTO_OBJETIVO_MM = 20.0
-    anchos_ar = [ALTO_OBJETIVO_MM * b["iw"] / b["ih"] for b in bloques]
-    total_ar = sum(anchos_ar)
-    factor = ancho_util_mm / total_ar
-    anchos_mm = [a * factor for a in anchos_ar]
-    altos_mm = [ALTO_OBJETIVO_MM * factor] * len(bloques)
-    alto_max = max(altos_mm)
+    centros_x, anclas_nota, iw, ih = _render_claves_png(
+        items, png_path,
+        ocultar_claves=(modo == "B"),
+        ancho_util_mm=ancho_util_mm,
+    )
+
+    ancho_pdf = ancho_util_mm * mm
+    alto_pdf = ancho_pdf * ih / iw
 
     c.setFont("Helvetica-Bold", 12)
-    # En la ficha siempre se imprime "Claves" a secas — la distinción A/B
-    # queda solo en el CLI / nombre de archivo.
+    # En la ficha siempre se imprime "Claves" a secas — la distinción
+    # A/B queda solo en el CLI / nombre de archivo.
     c.drawString(x_ini, y_top, f"{num_enunciado}. Claves")
 
-    y_img = y_top - 6 * mm - alto_max * mm
+    y_img = y_top - 6 * mm - alto_pdf
+    c.drawImage(
+        ImageReader(str(png_path)), x_ini, y_img,
+        width=ancho_pdf, height=alto_pdf,
+    )
 
-    x_img_mm_list = []
-    x_cur_mm = 0
-    for a in anchos_mm:
-        x_img_mm_list.append(x_cur_mm)
-        x_cur_mm += a
-
-    for b, x_mm, a_mm, alto_mm_b in zip(bloques, x_img_mm_list,
-                                          anchos_mm, altos_mm):
-        c.drawImage(
-            b["img"], x_ini + x_mm * mm, y_img,
-            width=a_mm * mm, height=alto_mm_b * mm,
-        )
-
+    # Etiquetas: dentro del padding inferior del PNG (2 mm por encima
+    # del borde inferior), como hace intervalos. Así quedan pegadas al
+    # compás sin pisar la línea inferior del pentagrama.
+    y_label = y_img + 2 * mm
     c.setFont("Helvetica-Oblique", 10)
-    y_label = y_img - 3.5 * mm
-    for b, x_mm, a_mm in zip(bloques, x_img_mm_list, anchos_mm):
+
+    # Fallback si la extracción de posiciones falla: reparto uniforme.
+    if len(centros_x) != len(items):
+        margen_clave_pct = 0.085
+        x_start_frac = margen_clave_pct
+        x_end_frac = 1.0 - 0.012
+        paso = (x_end_frac - x_start_frac) / len(items)
+        centros_x = [x_start_frac + paso * (i + 0.5)
+                     for i in range(len(items))]
+    if len(anclas_nota) != len(items):
+        anclas_nota = list(centros_x)
+
+    for idx, (clave, _pos, step, octave, alter) in enumerate(items):
         if modo == "A":
-            x_centro = x_ini + x_mm * mm + a_mm * mm * b["x_centro_frac"]
+            x_centro = x_ini + ancho_pdf * centros_x[idx]
             # Línea del alumno SIEMPRE (también en modo solución).
             c.setFillColorRGB(0, 0, 0)
             c.drawCentredString(x_centro, y_label, "______")
             if modo_solucion:
-                # Respuesta en rojo cursiva encima de la línea, sin
-                # número de octava (ej. "Re", "Sol#").
                 c.saveState()
                 c.setFillColorRGB(1, 0, 0)
                 c.drawCentredString(
                     x_centro, y_label + 0.6 * mm,
-                    nombre_nota_corto(b["step"], b["alter"]),
+                    nombre_nota_corto(step, alter),
                 )
                 c.restoreState()
         else:
             # Claves B: etiqueta con el NOMBRE de la nota SIN octava
             # (solo "Sib", "Re", "Sol#"...). Convención fijada por Iago.
-            x_nota = x_ini + x_mm * mm + a_mm * mm * b["x_nota_frac"]
+            x_nota = x_ini + ancho_pdf * anclas_nota[idx]
             c.drawCentredString(
                 x_nota, y_label,
-                nombre_nota_corto(b["step"], b["alter"]),
+                nombre_nota_corto(step, alter),
             )
 
     return y_label - 2 * mm
