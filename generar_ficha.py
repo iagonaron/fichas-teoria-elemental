@@ -304,11 +304,16 @@ def ids_por_defecto():
 # Composición de la ficha
 # -----------------------------------------------------------------------------
 def componer_ficha(numero_ficha, out_pdf, seed_base=50000,
-                   modo_solucion=False, ejercicios_activos=None):
+                   modo_solucion=False, ejercicios_activos=None,
+                   titulo_override=None):
     """Genera la ficha en PDF.
 
     ejercicios_activos: lista de ids (o None → ids_por_defecto()). El
     orden del registro EJERCICIOS determina el orden de dibujo.
+
+    titulo_override: si se pasa, se usa como título en vez de
+    "Ficha {numero_ficha}". Útil para la ficha de examen
+    ("Examen de teoría").
     """
     if ejercicios_activos is None:
         ejercicios_activos = ids_por_defecto()
@@ -319,12 +324,13 @@ def componer_ficha(numero_ficha, out_pdf, seed_base=50000,
 
     c = canvas.Canvas(str(out_pdf), pagesize=A4)
 
+    base = titulo_override if titulo_override else f"Ficha {numero_ficha}"
     if modo_solucion:
-        titulo = f"Ficha {numero_ficha} — Solución"
-        titulo_p2 = f"Ficha {numero_ficha} — Solución (cont.)"
+        titulo = f"{base} — Solución"
+        titulo_p2 = f"{base} — Solución (cont.)"
     else:
-        titulo = f"Ficha {numero_ficha}"
-        titulo_p2 = f"Ficha {numero_ficha} (cont.)"
+        titulo = base
+        titulo_p2 = f"{base} (cont.)"
 
     # Filtrado en el orden del registro
     a_dibujar = [

@@ -49,6 +49,7 @@ DEFAULTS = {
     "ultimo_num": None,
     "ultimo_seed": None,
     "ultimos_ids": None,
+    "ultimo_titulo": None,
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
@@ -67,12 +68,22 @@ for ej in gfi.ejercicios_disponibles():
 # -----------------------------------------------------------------------------
 # Parámetros básicos
 # -----------------------------------------------------------------------------
+es_examen = st.checkbox(
+    "Ficha de examen",
+    help=(
+        "Si se marca, el título pasa a ser 'Examen de teoría' "
+        "y los PDFs se llaman 'Alumno Examen de teoría.pdf' y "
+        "'Solución Examen de teoría.pdf'. Se ignora el número de ficha."
+    ),
+)
+
 col1, col2, col3 = st.columns([3, 3, 1])
 
 with col1:
     numero = st.number_input(
         "Número de ficha", min_value=1, max_value=999, value=5, step=1,
         help="Aparece en el título de la ficha.",
+        disabled=es_examen,
     )
 
 with col2:
@@ -160,7 +171,8 @@ generar = st.button(
 )
 
 
-def _gen_pdf_bytes(numero_ficha, seed_base, modo_solucion, ids):
+def _gen_pdf_bytes(numero_ficha, seed_base, modo_solucion, ids,
+                    titulo_override=None):
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / (
             "solucion.pdf" if modo_solucion else "alumno.pdf"
@@ -171,18 +183,22 @@ def _gen_pdf_bytes(numero_ficha, seed_base, modo_solucion, ids):
             seed_base=seed_base,
             modo_solucion=modo_solucion,
             ejercicios_activos=ids,
+            titulo_override=titulo_override,
         )
         return out.read_bytes()
 
 
 if generar:
+    titulo_override = "Examen de teoría" if es_examen else None
     with st.spinner("Generando fichas…"):
         try:
             pdf_alumno = _gen_pdf_bytes(
                 int(numero), int(seed), False, ids_activos,
+                titulo_override=titulo_override,
             )
             pdf_solucion = _gen_pdf_bytes(
                 int(numero), int(seed), True, ids_activos,
+                titulo_override=titulo_override,
             )
         except Exception as e:
             st.error(f"Error generando la ficha: {e}")
@@ -195,6 +211,7 @@ if generar:
     st.session_state["ultimo_num"] = int(numero)
     st.session_state["ultimo_seed"] = int(seed)
     st.session_state["ultimos_ids"] = list(ids_activos)
+    st.session_state["ultimo_titulo"] = titulo_override  # None o "Examen..."
 
 
 # -----------------------------------------------------------------------------
@@ -203,16 +220,25 @@ if generar:
 if st.session_state["pdf_alumno"] and st.session_state["pdf_solucion"]:
     num = st.session_state["ultimo_num"]
     seed_usada = st.session_state["ultimo_seed"]
-    st.success(
-        f"Ficha {num} (seed {seed_usada}) lista. Descarga los dos PDFs:"
-    )
+    titulo_ultimo = st.session_state.get("ultimo_titulo")
+
+    if titulo_ultimo:
+        etiqueta_msg = f"{titulo_ultimo} (seed {seed_usada}) lista."
+        nombre_alumno = f"Alumno {titulo_ultimo}.pdf"
+        nombre_solucion = f"Solución {titulo_ultimo}.pdf"
+    else:
+        etiqueta_msg = f"Ficha {num} (seed {seed_usada}) lista."
+        nombre_alumno = f"Ficha {num} — Alumno.pdf"
+        nombre_solucion = f"Ficha {num} — Solución.pdf"
+
+    st.success(f"{etiqueta_msg} Descarga los dos PDFs:")
 
     c1, c2 = st.columns(2)
     with c1:
         st.download_button(
             label="⬇ Alumno",
             data=st.session_state["pdf_alumno"],
-            file_name=f"Ficha {num} — Alumno.pdf",
+            file_name=nombre_alumno,
             mime="application/pdf",
             use_container_width=True,
             key="dl_alumno",
@@ -221,7 +247,7 @@ if st.session_state["pdf_alumno"] and st.session_state["pdf_solucion"]:
         st.download_button(
             label="⬇ Solución",
             data=st.session_state["pdf_solucion"],
-            file_name=f"Ficha {num} — Solución.pdf",
+            file_name=nombre_solucion,
             mime="application/pdf",
             use_container_width=True,
             key="dl_solucion",
