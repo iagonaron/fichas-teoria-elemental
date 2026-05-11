@@ -386,23 +386,30 @@ def musicxml_ejercicio_escalas_solucion(lista_escalas):
 # -----------------------------------------------------------------------------
 # Dibujar dentro de un canvas ya abierto (firma compatible con la ficha)
 # -----------------------------------------------------------------------------
-def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=8):
+def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=8,
+                        modo_solucion=False):
     """Renderiza el MusicXML de Escalas a PNG forzando el ancho útil
     completo. Devuelve `anclas`.
 
-    Estrategia (calibrada empíricamente para igualar a Semitonos):
-      - Con spacings normales de verovio (0.25/0.6) Escalas sale a
-        277 mm natural → factor 0.58x al estirar a 160 → staff pequeño.
-      - Con 0.18/0.50 sale a 118 mm → factor 1.35x → staff demasiado
-        grande respecto al resto.
-      - Con **0.20/0.55** sale a 170 mm → factor 0.94x — el mismo
-        factor exacto que Semitonos (167 mm natural, factor 0.96x).
-        Esto hace que cabezas y altura de staff coincidan con
-        Semitonos (el "tamaño estándar" que pidió Iago).
+    Los spacings se eligen según el modo para igualar el "tamaño
+    estándar" de Semitonos (factor ≈1.0x al estirar a 160 mm):
 
-    `padding_inf_mm` deja espacio para la etiqueta debajo sin solape
-    con notas graves.
+      - Modo SOLUCIÓN (14 redondas + accidentales + armadura): con
+        spacings 0.20/0.55 el viewBox natural ≈ 170 mm y el factor
+        sale 0.94x — equivalente a Semitonos.
+      - Modo ALUMNO (solo clave + barras + placeholders ocultos): el
+        viewBox es más estrecho. Con spacings 0.25/0.60 sale a 160 mm
+        natural y el factor es 1.00x. Con 0.20/0.55 se quedaría a
+        99 mm y el factor subiría a 1.62x: el staff saldría grande.
+
+    `padding_inf_mm` deja margen para la etiqueta debajo sin solape
+    con notas graves (sólo relevante en modo solución).
     """
+    if modo_solucion:
+        sp_linear, sp_nonlinear = 0.20, 0.55
+    else:
+        sp_linear, sp_nonlinear = 0.25, 0.60
+
     tk = verovio.toolkit()
     tk.setOptions({
         "pageWidth": 2100,
@@ -412,8 +419,8 @@ def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=8):
         "scale": 35,
         "spacingStaff": 8,
         "spacingSystem": 8,
-        "spacingNonLinear": 0.55,
-        "spacingLinear": 0.20,
+        "spacingNonLinear": sp_nonlinear,
+        "spacingLinear": sp_linear,
         "adjustPageHeight": True,
         "adjustPageWidth": True,
         "barLineWidth": 0.3,
@@ -463,7 +470,10 @@ def dibujar_en_canvas(c, x_ini, y_top, lista_escalas, num_enunciado,
     png_path = out_pdf_path.with_name(
         out_pdf_path.stem + f"_escalas_{num_enunciado}.png"
     )
-    anclas = _render_png_escalas(xml, png_path, ancho_util_mm=ancho_util_mm)
+    anclas = _render_png_escalas(
+        xml, png_path, ancho_util_mm=ancho_util_mm,
+        modo_solucion=modo_solucion,
+    )
 
     img = ImageReader(str(png_path))
     iw, ih = img.getSize()
