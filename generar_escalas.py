@@ -386,12 +386,25 @@ def musicxml_ejercicio_escalas_solucion(lista_escalas):
 # -----------------------------------------------------------------------------
 # Dibujar dentro de un canvas ya abierto (firma compatible con la ficha)
 # -----------------------------------------------------------------------------
-def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=14):
+def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=8):
     """Renderiza el MusicXML de Escalas a PNG forzando el ancho útil
-    completo (mismo patrón que Intervalos y Claves). Devuelve `anclas`.
+    completo. Devuelve `anclas`.
 
-    `padding_inf_mm` se usa para dejar espacio entre el pentagrama
-    (incluidas notas graves) y la etiqueta que dibuja reportlab debajo.
+    Estrategia (calibrada empíricamente con seed 3001):
+      - Con spacings de verovio "normales" (0.25/0.6), el viewBox natural
+        sale a 277 mm (más ancho que A4). Al estirarlo a 160 mm el código
+        COMPRIME a un 58 %; el staff queda visualmente pequeño. Ese era
+        el bug que reportaba Iago.
+      - Con spacings extremos bajos (0.12/0.40) el viewBox sale a 95 mm
+        y al estirarlo a 160 mm el factor sube a 1.68x: las cabezas se
+        solapan entre sí.
+      - Con spacings 0.18/0.50 el natural es 118 mm; el factor de
+        estirado es 1.36x. Las cabezas no se solapan y el staff sale a
+        un tamaño comparable a los demás ejercicios. Ese es el sweet
+        spot.
+
+    `padding_inf_mm` deja espacio para la etiqueta debajo sin solape
+    con notas graves.
     """
     tk = verovio.toolkit()
     tk.setOptions({
@@ -402,8 +415,8 @@ def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=14):
         "scale": 35,
         "spacingStaff": 8,
         "spacingSystem": 8,
-        "spacingNonLinear": 0.6,
-        "spacingLinear": 0.25,
+        "spacingNonLinear": 0.50,
+        "spacingLinear": 0.18,
         "adjustPageHeight": True,
         "adjustPageWidth": True,
         "barLineWidth": 0.3,
@@ -470,10 +483,10 @@ def dibujar_en_canvas(c, x_ini, y_top, lista_escalas, num_enunciado,
     y_img = y_top - 6 * mm - alto_pdf
     c.drawImage(img, x_img, y_img, width=ancho_pdf, height=alto_pdf)
 
-    # Etiquetas debajo de cada compás, en el padding inferior. Pegadas
-    # al borde inferior del PNG para dejar margen entre la última nota
-    # grave del pentagrama y el texto.
-    y_label = y_img + 2 * mm
+    # Etiquetas debajo de cada compás, en el padding inferior. Se sitúan
+    # cerca del borde inferior del PNG: el padding (~8 mm) ya garantiza
+    # que las notas más graves quedan por encima del texto.
+    y_label = y_img + 1.5 * mm
     GAP_ETIQUETA_MM = 3.5
     c.setFont("Helvetica-Oblique", 9)
     if len(anclas) == 2:
