@@ -291,7 +291,7 @@ def elegir_intervalos_a(n=8, seed=None, prob_alteracion=0.4, prob_armonico=0.3):
 # MusicXML: una "medida" por intervalo, con la nota de partida y debajo
 # un texto (la etiqueta del intervalo) como direction-type words.
 # -----------------------------------------------------------------------------
-def musicxml_nota(step, octave, alter, es_chord=False):
+def musicxml_nota(step, octave, alter, es_chord=False, color=None):
     alter_xml = f"<alter>{alter}</alter>" if alter else ""
     accidental_xml = ""
     if alter == 1:
@@ -299,8 +299,9 @@ def musicxml_nota(step, octave, alter, es_chord=False):
     elif alter == -1:
         accidental_xml = "<accidental>flat</accidental>"
     chord_xml = "<chord/>" if es_chord else ""
+    color_attr = f' color="{color}"' if color else ""
     return f"""
-      <note>
+      <note{color_attr}>
         {chord_xml}
         <pitch>
           <step>{step}</step>
@@ -340,6 +341,63 @@ def musicxml_ejercicio_intervalos(lista):
     </measure>""")
     measures_xml = "".join(measures)
 
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name></part-name></score-part>
+  </part-list>
+  <part id="P1">{measures_xml}
+  </part>
+</score-partwise>"""
+
+
+def _intervalo_lookup(etiqueta):
+    """Devuelve (semitonos, grados) del catálogo a partir de la etiqueta."""
+    for lab, sem_i, gr_i in INTERVALOS:
+        if lab == etiqueta:
+            return sem_i, gr_i
+    raise ValueError(f"Etiqueta de intervalo desconocida: {etiqueta}")
+
+
+def musicxml_ejercicio_intervalos_b_solucion(lista):
+    """MusicXML para Intervalos B en MODO SOLUCIÓN.
+
+    Cada compás tiene 2 redondas melódicas: la nota dada (negra) y la
+    nota respuesta calculada (en rojo). Tiempo 8/4 oculto para mantener
+    el mismo ancho que el modo A.
+
+    `lista` es la misma estructura que devuelve `elegir_intervalos`:
+    [(etiqueta, direccion, (step, octave, alter)), ...].
+    """
+    measures = []
+    n = len(lista)
+    for i, (etiqueta, direccion, (step, octave, alter)) in enumerate(lista, start=1):
+        semitonos_int, grados_int = _intervalo_lookup(etiqueta)
+        s_r, o_r, a_r, _ = calcular_respuesta(
+            step, octave, alter, grados_int, semitonos_int, direccion,
+        )
+        first_measure_attrs = ""
+        if i == 1:
+            first_measure_attrs = """
+        <attributes>
+          <divisions>4</divisions>
+          <key><fifths>0</fifths></key>
+          <time print-object="no"><beats>8</beats><beat-type>4</beat-type></time>
+          <clef><sign>G</sign><line>2</line></clef>
+        </attributes>"""
+        barra = ""
+        if i == n:
+            barra = """
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>"""
+        contenido = (
+            musicxml_nota(step, octave, alter)
+            + musicxml_nota(s_r, o_r, a_r, color="#FF0000")
+        )
+        measures.append(f"""
+    <measure number="{i}">{first_measure_attrs}{contenido}{barra}
+    </measure>""")
+    measures_xml = "".join(measures)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="4.0">
@@ -464,18 +522,25 @@ def svg_a_png_bytes(svg_text, ancho_pixeles):
 
 
 def _render_intervalos_png(lista_intervalos, modo, png_path,
-                           ancho_util_mm=160):
+                           ancho_util_mm=160, modo_solucion=False):
     """Render de la partitura de Intervalos a PNG. Devuelve (centros_x, iw, ih).
     `centros_x` son fracciones 0..1 con el centro de cada compás.
     """
+    # Modo B en SOLUCIÓN: dos notas por compás (partida + respuesta en
+    # rojo). Usa los mismos parámetros visuales que modo A para que el
+    # pentagrama salga proporcionado.
+    es_b_sol = (modo == "B" and modo_solucion)
     if modo == "A":
         xml = musicxml_ejercicio_intervalos_a(lista_intervalos)
+    elif es_b_sol:
+        xml = musicxml_ejercicio_intervalos_b_solucion(lista_intervalos)
     else:
         xml = musicxml_ejercicio_intervalos(lista_intervalos)
 
-    scale_verovio = 26 if modo == "A" else 35
-    spacing_lineal = 0.18 if modo == "A" else 0.25
-    spacing_no_lineal = 0.55 if modo == "A" else 0.6
+    usa_dos_notas = (modo == "A" or es_b_sol)
+    scale_verovio = 26 if usa_dos_notas else 35
+    spacing_lineal = 0.18 if usa_dos_notas else 0.25
+    spacing_no_lineal = 0.55 if usa_dos_notas else 0.6
     tk = verovio.toolkit()
     tk.setOptions({
         "pageWidth": 2100, "pageHeight": 2970,
@@ -497,7 +562,7 @@ def _render_intervalos_png(lista_intervalos, modo, png_path,
 
     dpi = 300
     ancho_pix = int(ancho_util_mm / 25.4 * dpi)
-    padding_inf_mm = 9 if modo == "A" else 6
+    padding_inf_mm = 9 if usa_dos_notas else 6
     padding_inf_px = int(padding_inf_mm / 25.4 * dpi)
     png_bytes = svg_a_png_bytes(svg, ancho_pix)
     with Image.open(io.BytesIO(png_bytes)) as im_rgba:
@@ -530,6 +595,7 @@ def dibujar_en_canvas(c, x_ini, y_top, lista_intervalos, modo,
 
     centros_x, iw, ih = _render_intervalos_png(
         lista_intervalos, modo, png_path, ancho_util_mm=ancho_util_mm,
+        modo_solucion=modo_solucion,
     )
 
     ancho_pdf = ancho_util_mm * mm

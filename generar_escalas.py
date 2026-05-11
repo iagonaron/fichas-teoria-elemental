@@ -69,6 +69,45 @@ PATRONES = {
     "menor dórica":   [0, 2, 3, 5, 7, 9, 10],
 }
 
+# fifths (armadura) de la menor natural de cada tónica blanca
+MINOR_FIFTHS = {
+    "C": -3, "D": -1, "E": 1, "F": -4, "G": -2, "A": 0, "B": 2,
+}
+
+# Mapa fifths -> {step: alter} que implica la armadura.
+KEY_ALTER_BY_FIFTHS = {
+    -7: {"B": -1, "E": -1, "A": -1, "D": -1, "G": -1, "C": -1, "F": -1},
+    -6: {"B": -1, "E": -1, "A": -1, "D": -1, "G": -1, "C": -1},
+    -5: {"B": -1, "E": -1, "A": -1, "D": -1, "G": -1},
+    -4: {"B": -1, "E": -1, "A": -1, "D": -1},
+    -3: {"B": -1, "E": -1, "A": -1},
+    -2: {"B": -1, "E": -1},
+    -1: {"B": -1},
+    0:  {},
+    1:  {"F": 1},
+    2:  {"F": 1, "C": 1},
+    3:  {"F": 1, "C": 1, "G": 1},
+    4:  {"F": 1, "C": 1, "G": 1, "D": 1},
+    5:  {"F": 1, "C": 1, "G": 1, "D": 1, "A": 1},
+    6:  {"F": 1, "C": 1, "G": 1, "D": 1, "A": 1, "E": 1},
+    7:  {"F": 1, "C": 1, "G": 1, "D": 1, "A": 1, "E": 1, "B": 1},
+}
+
+
+def alter_armadura(step, fifths):
+    """Devuelve la alteración que impone la armadura `fifths` al `step`.
+    0 si la armadura no toca ese step."""
+    return KEY_ALTER_BY_FIFTHS.get(fifths, {}).get(step, 0)
+
+
+ACCIDENTAL_TAG = {
+    2:  "<accidental>double-sharp</accidental>",
+    1:  "<accidental>sharp</accidental>",
+    0:  "<accidental>natural</accidental>",
+    -1: "<accidental>flat</accidental>",
+    -2: "<accidental>flat-flat</accidental>",
+}
+
 
 def generar_escala_notas(step_tonica, octava_tonica, tipo):
     """Devuelve lista de 7 tuplas (step, octave, alter) con las notas de
@@ -250,43 +289,76 @@ def _alter_to_xml(alter):
 
 def musicxml_ejercicio_escalas_solucion(lista_escalas):
     """Dos compases con las notas de la escala escritas (redondas).
-    La lista debe tener 2 elementos (nombre, step, octava, tipo)."""
-    def notas_xml(step_ton, oct_ton, tipo):
-        notas = generar_escala_notas(step_ton, oct_ton, tipo)
-        out = []
-        for (s, o, a) in notas:
-            alter_xml = _alter_to_xml(a)
-            pitch = (
-                f"<pitch><step>{s}</step>"
-                f"{alter_xml}<octave>{o}</octave></pitch>"
-            )
-            out.append(
-                f"\n      <note color=\"#FF0000\">{pitch}"
-                "<duration>4</duration><type>whole</type></note>"
-            )
-        return "".join(out)
+    La lista debe tener 2 elementos (nombre, step, octava, tipo).
 
-    first_attrs = """
+    Convención (decidida con Iago, 2026-05-09):
+      - Cada compás lleva la ARMADURA propia de la menor natural de
+        su tónica (Re menor → 1 bemol; Sol menor → 2 bemoles; etc.).
+      - Las alteraciones MODALES (Do# en armónica, Fa#/Sol# en
+        melódica ascendente, etc.) se imprimen como ACCIDENTALES.
+      - Si la armadura ya provee la alteración, no se duplica como
+        accidental.
+      - Si la nota se naturaliza respecto a la armadura (p. ej. Si
+        natural en menor melódica de Do), se imprime un becuadro.
+    """
+    def nota_xml(step, octave, alter, fifths):
+        alter_kx = alter_armadura(step, fifths)
+        # <alter> en el pitch: necesario si la nota lleva alteración
+        # o si la armadura altera ese step (para forzar el sonido,
+        # incluso aunque sea natural y haya becuadro).
+        if alter != 0 or alter_kx != 0:
+            alter_xml = f"<alter>{alter}</alter>"
+        else:
+            alter_xml = ""
+        # <accidental> (símbolo gráfico): solo si la armadura no lo cubre.
+        accidental_xml = ""
+        if alter != alter_kx:
+            accidental_xml = ACCIDENTAL_TAG.get(alter, "")
+        pitch = (
+            f"<pitch><step>{step}</step>"
+            f"{alter_xml}<octave>{octave}</octave></pitch>"
+        )
+        return (
+            f"\n      <note color=\"#FF0000\">{pitch}"
+            f"<duration>4</duration><type>whole</type>{accidental_xml}</note>"
+        )
+
+    def notas_xml(step_ton, oct_ton, tipo, fifths):
+        notas = generar_escala_notas(step_ton, oct_ton, tipo)
+        return "".join(nota_xml(s, o, a, fifths) for (s, o, a) in notas)
+
+    (n1, s1, o1, t1) = lista_escalas[0]
+    (n2, s2, o2, t2) = lista_escalas[1]
+    fifths1 = MINOR_FIFTHS[s1]
+    fifths2 = MINOR_FIFTHS[s2]
+
+    first_attrs = f"""
         <attributes>
           <divisions>1</divisions>
-          <key><fifths>0</fifths></key>
+          <key><fifths>{fifths1}</fifths></key>
           <time print-object="no"><beats>32</beats><beat-type>4</beat-type></time>
           <clef><sign>G</sign><line>2</line></clef>
         </attributes>"""
 
-    (n1, s1, o1, t1) = lista_escalas[0]
-    (n2, s2, o2, t2) = lista_escalas[1]
+    # Compás 2: si la armadura cambia, lo declaramos al inicio del compás.
+    second_attrs = ""
+    if fifths2 != fifths1:
+        second_attrs = f"""
+        <attributes>
+          <key><fifths>{fifths2}</fifths></key>
+        </attributes>"""
 
     m1 = (
         f'\n    <measure number="1">{first_attrs}'
-        f'{notas_xml(s1, o1, t1)}'
+        f'{notas_xml(s1, o1, t1, fifths1)}'
         '\n      <barline location="right"><bar-style>light-light</bar-style></barline>'
         '\n    </measure>'
     )
     m2 = (
         '\n    <measure number="2">'
         '\n      <print new-system="no"/>'
-        f'{notas_xml(s2, o2, t2)}'
+        f'{second_attrs}'
+        f'{notas_xml(s2, o2, t2, fifths2)}'
         '\n      <barline location="right"><bar-style>light-heavy</bar-style></barline>'
         '\n    </measure>'
     )
