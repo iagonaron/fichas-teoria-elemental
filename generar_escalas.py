@@ -390,18 +390,15 @@ def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=8):
     """Renderiza el MusicXML de Escalas a PNG forzando el ancho útil
     completo. Devuelve `anclas`.
 
-    Estrategia (calibrada empíricamente con seed 3001):
-      - Con spacings de verovio "normales" (0.25/0.6), el viewBox natural
-        sale a 277 mm (más ancho que A4). Al estirarlo a 160 mm el código
-        COMPRIME a un 58 %; el staff queda visualmente pequeño. Ese era
-        el bug que reportaba Iago.
-      - Con spacings extremos bajos (0.12/0.40) el viewBox sale a 95 mm
-        y al estirarlo a 160 mm el factor sube a 1.68x: las cabezas se
-        solapan entre sí.
-      - Con spacings 0.18/0.50 el natural es 118 mm; el factor de
-        estirado es 1.36x. Las cabezas no se solapan y el staff sale a
-        un tamaño comparable a los demás ejercicios. Ese es el sweet
-        spot.
+    Estrategia (calibrada empíricamente para igualar a Semitonos):
+      - Con spacings normales de verovio (0.25/0.6) Escalas sale a
+        277 mm natural → factor 0.58x al estirar a 160 → staff pequeño.
+      - Con 0.18/0.50 sale a 118 mm → factor 1.35x → staff demasiado
+        grande respecto al resto.
+      - Con **0.20/0.55** sale a 170 mm → factor 0.94x — el mismo
+        factor exacto que Semitonos (167 mm natural, factor 0.96x).
+        Esto hace que cabezas y altura de staff coincidan con
+        Semitonos (el "tamaño estándar" que pidió Iago).
 
     `padding_inf_mm` deja espacio para la etiqueta debajo sin solape
     con notas graves.
@@ -415,8 +412,8 @@ def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=8):
         "scale": 35,
         "spacingStaff": 8,
         "spacingSystem": 8,
-        "spacingNonLinear": 0.50,
-        "spacingLinear": 0.18,
+        "spacingNonLinear": 0.55,
+        "spacingLinear": 0.20,
         "adjustPageHeight": True,
         "adjustPageWidth": True,
         "barLineWidth": 0.3,
