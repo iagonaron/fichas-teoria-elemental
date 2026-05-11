@@ -139,6 +139,8 @@ def elegir_escalas(seed=None):
       - Tónica tal que la 8ª ascendente no se pase de Sol5.
       - Escala con un máximo de MAX_ALTERACIONES alteraciones.
       - 'menor natural' con menor probabilidad (PESOS_TIPOS).
+      - El TIPO del 2º compás debe ser distinto al del 1º (pedido
+        explícitamente por Iago: que no salgan dos "dóricas" seguidas).
       - Evita duplicar la misma combinación exacta en el ejercicio.
     """
     if seed is not None:
@@ -156,19 +158,26 @@ def elegir_escalas(seed=None):
     pesos = [PESOS_TIPOS[t] for t in tipos_pond]
 
     picks = []
+    tipos_usados = set()
     for _ in range(2):
-        for _ in range(100):
+        for _ in range(200):
             nombre, step, oct_ = random.choice(validas)
             tipo = random.choices(tipos_pond, weights=pesos, k=1)[0]
+            if tipo in tipos_usados:
+                continue
             notas = generar_escala_notas(step, oct_, tipo)
             if contar_alteraciones(notas) > MAX_ALTERACIONES:
                 continue
             cand = (nombre, step, oct_, tipo)
-            if cand not in picks:
-                picks.append(cand)
-                break
+            if cand in picks:
+                continue
+            picks.append(cand)
+            tipos_usados.add(tipo)
+            break
         else:
+            # Fallback: aceptar aunque el tipo se repita.
             picks.append((nombre, step, oct_, tipo))
+            tipos_usados.add(tipo)
     return picks
 
 
@@ -377,8 +386,13 @@ def musicxml_ejercicio_escalas_solucion(lista_escalas):
 # -----------------------------------------------------------------------------
 # Dibujar dentro de un canvas ya abierto (firma compatible con la ficha)
 # -----------------------------------------------------------------------------
-def _render_png_escalas(xml, png_path, padding_inf_mm=9):
-    """Renderiza el MusicXML a PNG. Devuelve (anclas, ancho_mm_natural)."""
+def _render_png_escalas(xml, png_path, ancho_util_mm=160, padding_inf_mm=14):
+    """Renderiza el MusicXML de Escalas a PNG forzando el ancho útil
+    completo (mismo patrón que Intervalos y Claves). Devuelve `anclas`.
+
+    `padding_inf_mm` se usa para dejar espacio entre el pentagrama
+    (incluidas notas graves) y la etiqueta que dibuja reportlab debajo.
+    """
     tk = verovio.toolkit()
     tk.setOptions({
         "pageWidth": 2100,
@@ -391,7 +405,7 @@ def _render_png_escalas(xml, png_path, padding_inf_mm=9):
         "spacingNonLinear": 0.6,
         "spacingLinear": 0.25,
         "adjustPageHeight": True,
-        "adjustPageWidth": False,
+        "adjustPageWidth": True,
         "barLineWidth": 0.3,
         "staffLineWidth": 0.2,
         "header": "none",
@@ -403,17 +417,8 @@ def _render_png_escalas(xml, png_path, padding_inf_mm=9):
     svg = tk.renderToSVG(1)
     anclas = extraer_anclas(svg)
 
-    # Mismo patrón visual que otros ejercicios: renderizar con el ancho
-    # natural y luego escalar.
-    vb_match = re.search(
-        r'class="definition-scale"[^>]*viewBox="([\d\s\.\-]+)"', svg
-    )
-    vb_w = float(vb_match.group(1).split()[2]) if vb_match else 2100.0
-    K_VB_PER_MM = 90.06
-    ancho_mm_natural = vb_w / K_VB_PER_MM
-
     dpi = 300
-    ancho_pix = max(400, int(ancho_mm_natural / 25.4 * dpi))
+    ancho_pix = int(ancho_util_mm / 25.4 * dpi)
     padding_inf_px = int(padding_inf_mm / 25.4 * dpi)
     png_bytes = gi.svg_a_png_bytes(svg, ancho_pix)
     with Image.open(io.BytesIO(png_bytes)) as im_rgba:
@@ -425,13 +430,19 @@ def _render_png_escalas(xml, png_path, padding_inf_mm=9):
             fondo.paste(im_rgba, (0, 0))
         fondo.save(png_path, "PNG")
 
-    return anclas, ancho_mm_natural
+    return anclas
 
 
 def dibujar_en_canvas(c, x_ini, y_top, lista_escalas, num_enunciado,
                       out_pdf_path, ancho_util_mm=160, modo_solucion=False):
     """Dibuja el ejercicio de Escalas menores en `c` a partir de `y_top`.
-    Devuelve el Y del borde inferior (y_bottom)."""
+    Devuelve el Y del borde inferior (y_bottom).
+
+    El pentagrama se estira al ancho útil (mismo patrón que Intervalos y
+    Claves) para que tenga el mismo tamaño visual que el resto de
+    ejercicios. La etiqueta se dibuja debajo, dentro del padding inferior
+    del PNG, con margen suficiente para no solaparse con notas graves.
+    """
     out_pdf_path = Path(out_pdf_path)
 
     if modo_solucion:
@@ -442,27 +453,27 @@ def dibujar_en_canvas(c, x_ini, y_top, lista_escalas, num_enunciado,
     png_path = out_pdf_path.with_name(
         out_pdf_path.stem + f"_escalas_{num_enunciado}.png"
     )
-    anclas, ancho_mm_natural = _render_png_escalas(xml, png_path)
+    anclas = _render_png_escalas(xml, png_path, ancho_util_mm=ancho_util_mm)
 
     img = ImageReader(str(png_path))
     iw, ih = img.getSize()
-    factor = min(1.0, ancho_util_mm / ancho_mm_natural)
-    ancho_pdf_mm = ancho_mm_natural * factor
-    alto_mm = ancho_pdf_mm * ih / iw
+
+    # Forzar ancho útil completo. El alto se deriva proporcionalmente.
+    ancho_pdf = ancho_util_mm * mm
+    alto_pdf = ancho_pdf * ih / iw
 
     # Título
     c.setFont("Helvetica-Bold", 12)
     c.drawString(x_ini, y_top, f"{num_enunciado}. Escalas menores")
 
-    # Imagen del pentagrama centrada en el ancho útil
-    ancho_pdf = ancho_pdf_mm * mm
-    alto_pdf = alto_mm * mm
-    x_img = x_ini + (ancho_util_mm - ancho_pdf_mm) * mm / 2
+    x_img = x_ini
     y_img = y_top - 6 * mm - alto_pdf
     c.drawImage(img, x_img, y_img, width=ancho_pdf, height=alto_pdf)
 
-    # Etiquetas debajo de cada compás
-    y_label = y_img + 6 * mm
+    # Etiquetas debajo de cada compás, en el padding inferior. Pegadas
+    # al borde inferior del PNG para dejar margen entre la última nota
+    # grave del pentagrama y el texto.
+    y_label = y_img + 2 * mm
     GAP_ETIQUETA_MM = 3.5
     c.setFont("Helvetica-Oblique", 9)
     if len(anclas) == 2:

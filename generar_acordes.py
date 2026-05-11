@@ -101,44 +101,45 @@ def hay_doble_alteracion(notas):
 # -----------------------------------------------------------------------------
 # Sorteo
 # -----------------------------------------------------------------------------
-def _sortea_un_acorde(prob_alteracion_fund=0.4, prob_doble=0.10):
-    """Devuelve tupla (tipo, notas) o None si no encuentra candidato válido.
+def _sortea_acorde_de_tipo(tipo, fundamentales_usadas,
+                            prob_alteracion_fund=0.4, prob_doble=0.10):
+    """Sortea UN acorde del `tipo` pedido, con fundamental distinta a
+    las ya usadas. Devuelve (tipo, notas) o None si no encuentra.
 
-    El 10% (prob_doble) de los acordes saldrán con alguna doble alteración
-    (se fuerza que hay_doble == permitir_doble_esta_vez). El resto limpio.
+    `fundamentales_usadas` es un set de tuplas (step, alter) — la
+    octava no cuenta a la hora de considerar "fundamental repetida"
+    (Do4 y Do5 cuentan como la misma fundamental).
     """
     permitir_doble = random.random() < prob_doble
-    for _ in range(1200):
-        tipo = random.choice(list(TIPOS_ACORDE.keys()))
+    for _ in range(1500):
         step, octave = random.choice(gi.NOTAS_PARTIDA_SO)
         alter = 0
         if random.random() < prob_alteracion_fund:
             alter = random.choice([-1, 1])
         if (step, alter) in gi.RARAS:
             continue
+        if (step, alter) in fundamentales_usadas:
+            continue
         m1 = gi.midi_nota(step, octave, alter)
-        # La 5ª puede ser hasta +8 semitonos: la fund no debe pasar de
-        # MIDI_MAX - 8. Por abajo, no debe bajar de MIDI_MIN.
         if not (gi.MIDI_MIN <= m1 <= gi.MIDI_MAX - 8):
             continue
         notas = notas_acorde(step, octave, alter, tipo)
         if notas is None:
             continue
-        # Filtro 90/10
         if hay_doble_alteracion(notas) != permitir_doble:
             continue
-        # Rango del resto de notas
         if any(not (gi.MIDI_MIN <= gi.midi_nota(s, o, a) <= gi.MIDI_MAX)
                for s, o, a in notas):
             continue
         return (tipo, notas)
 
-    # Fallback defensivo: sin el filtro 90/10, solo validar rango y raras.
+    # Fallback defensivo (sin filtro 90/10).
     for _ in range(500):
-        tipo = random.choice(list(TIPOS_ACORDE.keys()))
         step, octave = random.choice(gi.NOTAS_PARTIDA_SO)
         alter = 0
         if (step, alter) in gi.RARAS:
+            continue
+        if (step, alter) in fundamentales_usadas:
             continue
         m1 = gi.midi_nota(step, octave, alter)
         if not (gi.MIDI_MIN <= m1 <= gi.MIDI_MAX - 8):
@@ -154,13 +155,39 @@ def _sortea_un_acorde(prob_alteracion_fund=0.4, prob_doble=0.10):
 
 
 def elegir_acordes(seed=None, prob_doble=0.10):
-    """Genera identificar (2 acordes) + completar (2 acordes)."""
+    """Genera 4 acordes garantizando:
+      - Los 4 tipos distintos (PM, Pm, Aum, Dis), uno por compás.
+      - Las 4 fundamentales distintas (sin contar octava).
+      - 2 acordes para `identificar` + 2 para `completar` (asignados al
+        azar tras la generación para que el orden de tipos no sea fijo).
+
+    Pedido por Iago: que los acordes aparezcan variados, sin repetir ni
+    fundamental ni tipo dentro de la misma ficha.
+    """
     if seed is not None:
         random.seed(seed)
-    identificar = [_sortea_un_acorde(prob_doble=prob_doble) for _ in range(2)]
-    completar = [_sortea_un_acorde(prob_doble=prob_doble) for _ in range(2)]
-    random.shuffle(identificar)
-    random.shuffle(completar)
+
+    tipos = list(TIPOS_ACORDE.keys())
+    random.shuffle(tipos)
+
+    fundamentales_usadas = set()
+    acordes = []
+    for tipo in tipos:
+        ac = _sortea_acorde_de_tipo(
+            tipo, fundamentales_usadas, prob_doble=prob_doble,
+        )
+        if ac is None:
+            # Si no encuentra, intenta sin restricción de fundamental
+            ac = _sortea_acorde_de_tipo(tipo, set(), prob_doble=prob_doble)
+        if ac is not None:
+            _, notas = ac
+            s, _o, a = notas[0]
+            fundamentales_usadas.add((s, a))
+            acordes.append(ac)
+
+    random.shuffle(acordes)
+    identificar = acordes[:2]
+    completar = acordes[2:4]
     return identificar, completar
 
 
