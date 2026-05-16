@@ -255,18 +255,47 @@ def musicxml_un_compas(con_barra_final=False, final_heavy=True):
 </score-partwise>"""
 
 
-def _nota_visible_xml(step, octave, alter, color=None):
-    """Redonda visible. `color` opcional (string tipo '#FF0000')."""
-    alter_xml = f"<alter>{alter}</alter>" if alter else ""
-    accidental_xml = ""
-    if alter == 1:
-        accidental_xml = "<accidental>sharp</accidental>"
-    elif alter == -1:
-        accidental_xml = "<accidental>flat</accidental>"
-    elif alter == 2:
-        accidental_xml = "<accidental>double-sharp</accidental>"
-    elif alter == -2:
-        accidental_xml = "<accidental>flat-flat</accidental>"
+_ACCIDENTAL_TAG = {
+    2:  "<accidental>double-sharp</accidental>",
+    1:  "<accidental>sharp</accidental>",
+    0:  "<accidental>natural</accidental>",
+    -1: "<accidental>flat</accidental>",
+    -2: "<accidental>flat-flat</accidental>",
+}
+
+
+def _accidental_xml_vs_armadura(step, alter, fifths):
+    """Devuelve el `<accidental>` que hay que dibujar cuando una nota
+    está dentro de un compás con armadura `fifths`. Si el alter coincide
+    con el que impone la armadura, no hace falta nada. Si difiere, hay
+    que pintar sharp/flat/natural (becuadro) o doble-x.
+
+    Necesario porque verovio NO dibuja el accidental automáticamente a
+    partir del `<alter>`: hay que ponerlo explícito o se interpreta
+    visualmente como "lo que diga la armadura".
+    """
+    alter_armadura_local = alteracion_en_armadura(step, fifths)
+    if alter == alter_armadura_local:
+        return ""
+    return _ACCIDENTAL_TAG.get(alter, "")
+
+
+def _nota_visible_xml(step, octave, alter, color=None, fifths=0):
+    """Redonda visible. `color` opcional (string tipo '#FF0000').
+
+    `fifths` se usa para decidir si la nota necesita un accidental
+    explícito porque difiera de la armadura del compás (incluido
+    becuadro cuando alter=0 y la armadura tiene esa nota alterada).
+    """
+    # `<alter>` necesario si la nota lleva alteración o si la armadura
+    # altera ese step (para que el sonido sea correcto aunque haya
+    # becuadro).
+    alter_armadura_local = alteracion_en_armadura(step, fifths)
+    if alter != 0 or alter_armadura_local != 0:
+        alter_xml = f"<alter>{alter}</alter>"
+    else:
+        alter_xml = ""
+    accidental_xml = _accidental_xml_vs_armadura(step, alter, fifths)
     color_attr = f' color="{color}"' if color else ""
     return f"""
       <note{color_attr}>
@@ -281,10 +310,18 @@ def _nota_visible_xml(step, octave, alter, color=None):
       </note>"""
 
 
-def _nota_negra_sin_plica_xml(step, octave, alter, color=None):
+def _nota_negra_sin_plica_xml(step, octave, alter, color=None, fifths=0):
     """Cabeza de negra SIN plica (stem=none). Usada en la escala del
-    modo solución (estilo "escala cursiva" del profesor)."""
-    alter_xml = f"<alter>{alter}</alter>" if alter else ""
+    modo solución (estilo "escala cursiva" del profesor).
+
+    `fifths`: ver `_nota_visible_xml`.
+    """
+    alter_armadura_local = alteracion_en_armadura(step, fifths)
+    if alter != 0 or alter_armadura_local != 0:
+        alter_xml = f"<alter>{alter}</alter>"
+    else:
+        alter_xml = ""
+    accidental_xml = _accidental_xml_vs_armadura(step, alter, fifths)
     color_attr = f' color="{color}"' if color else ""
     return f"""
       <note{color_attr}>
@@ -296,6 +333,7 @@ def _nota_negra_sin_plica_xml(step, octave, alter, color=None):
         <duration>1</duration>
         <type>quarter</type>
         <stem>none</stem>
+        {accidental_xml}
       </note>"""
 
 
@@ -333,7 +371,7 @@ def musicxml_escala_solucion(fifths, tonalidad_nombre, tonica_octava,
         octava_g = _octava_grado(tonica_step, tonica_octava, g)
         color = "#FF0000" if g in objetivos else None
         notas.append(_nota_negra_sin_plica_xml(
-            step_g, octava_g, alter_g, color=color,
+            step_g, octava_g, alter_g, color=color, fifths=fifths,
         ))
 
     beats_total = 7  # 7 negras
@@ -381,7 +419,7 @@ def musicxml_un_compas_solucion(fifths, step, octave, alter,
         '<rest/><duration>4</duration><type>whole</type>'
         '</note>'
     )
-    nota = _nota_visible_xml(step, octave, alter, color="#FF0000")
+    nota = _nota_visible_xml(step, octave, alter, color="#FF0000", fifths=fifths)
     elementos = []
     for i in range(1, N_PLACEHOLDERS + 1):
         if i == pos_nota:

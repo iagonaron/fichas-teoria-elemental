@@ -387,7 +387,7 @@ def dibujar_en_canvas(c, x_ini, y_top, items, num_enunciado,
     # Título del ejercicio
     y_titulo = y_top
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(x_ini, y_titulo, f"{num_enunciado}. Enarmonía")
+    c.drawString(x_ini, y_titulo, f"{num_enunciado}. Enarmonías")
 
     # Pentagrama centrado horizontalmente
     x_img = x_ini + (ancho_util_mm - ancho_pdf_mm) * mm / 2

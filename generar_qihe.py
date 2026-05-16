@@ -182,13 +182,25 @@ def musicxml_un_compas(n_placeholders, con_barra_final=False, final_heavy=True):
 
 def musicxml_c1_solucion(fifths, nota1, nota2, n_placeholders,
                           con_barra_final=True, final_heavy=False,
-                          pos_n1=2, pos_n2=5):
+                          pos_n1=2, pos_n2=5,
+                          fifths_ref=None):
     """c1 de la solución: armadura REAL + 2 redondas rojas visibles
     (las 2 notas del intervalo). El resto de slots se rellena con
     silencios ocultos para conservar el ancho natural.
 
     `nota1` y `nota2` son tuplas (step, octave, alter).
+
+    `fifths` es la armadura VISIBLE (lo que se dibuja en el `<key>`).
+    `fifths_ref` (opcional) es la armadura usada como REFERENCIA para
+    decidir si una nota necesita accidental explícito (sharp/flat/
+    natural). Si no se pasa, se usa `fifths`. Útil cuando se quiere
+    el `<key>` vacío (compás melódico SIN armadura impresa) pero a la
+    vez dibujar los accidentales respecto a la armadura conceptual
+    del enunciado (p. ej. becuadro a la sensible de una tonalidad
+    menor con bemoles).
     """
+    if fifths_ref is None:
+        fifths_ref = fifths
     if con_barra_final:
         style = "light-heavy" if final_heavy else "light-light"
         barra = (f'<barline location="right">'
@@ -201,8 +213,8 @@ def musicxml_c1_solucion(fifths, nota1, nota2, n_placeholders,
         '<rest/><duration>4</duration><type>whole</type>'
         '</note>'
     )
-    n1 = gg._nota_visible_xml(*nota1, color="#FF0000")
-    n2 = gg._nota_visible_xml(*nota2, color="#FF0000")
+    n1 = gg._nota_visible_xml(*nota1, color="#FF0000", fifths=fifths_ref)
+    n2 = gg._nota_visible_xml(*nota2, color="#FF0000", fifths=fifths_ref)
     elementos = []
     for i in range(1, n_placeholders + 1):
         if i == pos_n1:
@@ -253,17 +265,20 @@ def musicxml_c2_solucion(fifths, nota1, nota2, n_placeholders,
 
 def musicxml_c2_intervalo_melodico(nota1, nota2, n_placeholders,
                                      con_barra_final=True, final_heavy=True,
-                                     pos_n1=1, pos_n2=2):
-    """c2 SIN armadura (fifths=0) con las 2 redondas consecutivas.
-
-    Regla del ejercicio: aquí NO hay armadura, así que cualquier
-    alteración de las notas se dibuja explícitamente. Como pasamos
-    `<alter>` correcto, verovio se encarga de pintar # o b si alter != 0.
+                                     pos_n1=1, pos_n2=2,
+                                     fifths_ref=0):
+    """c2 SIN armadura visible (`<key>` a 0) con las 2 redondas
+    consecutivas. Si se pasa `fifths_ref` distinto de 0, los
+    accidentales (sharp/flat/becuadro) se deciden respecto a esa
+    armadura aunque no esté dibujada. Esto refuerza pedagógicamente
+    al alumno que p. ej. la sensible de una tonalidad menor con
+    bemoles lleva becuadro respecto a su armadura.
     """
     return musicxml_c1_solucion(
         0, nota1, nota2, n_placeholders,
         con_barra_final=con_barra_final, final_heavy=final_heavy,
         pos_n1=pos_n1, pos_n2=pos_n2,
+        fifths_ref=fifths_ref,
     )
 
 
@@ -389,12 +404,14 @@ def dibujar_en_canvas(c, x_ini, y_top, item, num_enunciado, out_pdf_path,
             grado_objetivo=[item["grado1_num"], item["grado2_num"]],
             con_barra_final=True, final_heavy=False,
         )
-        # c2: intervalo melódico SIN armadura. Las notas van con su
-        # alteración explícita (alter ≠ 0 → verovio pinta # o b).
+        # c2: intervalo melódico SIN armadura impresa. Los accidentales
+        # se deciden respecto a la armadura del enunciado (`item['fifths']`),
+        # así el becuadro a la sensible/etc se ve también aquí.
         xml2 = musicxml_c2_intervalo_melodico(
             nota1, nota2, N_PLACEHOLDERS_C2,
             con_barra_final=True, final_heavy=True,
             pos_n1=1, pos_n2=2,
+            fifths_ref=item["fifths"],
         )
         vb1, vbh1, noteheads1 = _render_compas_png(
             xml1, png1, keysig_rojo=True, return_noteheads=True,
