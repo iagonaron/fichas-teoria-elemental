@@ -83,11 +83,13 @@ TODAS_ENARMONIAS = {
     # OJO con los dobles-bemoles del grado siguiente:
     #   - Reb (61) NO es enarmónico de Mibb (62 = Re natural).
     #   - Solb (66) NO es enarmónico de Labb (67 = Sol natural).
-    # Reb y Solb solo tienen UNA enarmonía razonable (Do# y Fa#),
-    # como Sol#/Lab. Antes el catálogo tenía esas dos entradas erróneas.
-    ("D", -1): [("C", 1, 0)],                     # Reb: SOLO Do#
+    # La segunda enarmonía de Reb/Solb es el doble-sostenido del grado
+    # ANTERIOR, no el doble-bemol del siguiente:
+    #   - Reb (61) ↔ Si## de la octava anterior (Six↓).
+    #   - Solb (66) ↔ Mix (Mi doble sostenido, misma octava).
+    ("D", -1): [("C", 1, 0),   ("B", 2, -1)],     # Reb: Do#, Six↓
     ("E", -1): [("D", 1, 0),   ("F", -2, 0)],     # Mib: Re#, Fabb
-    ("G", -1): [("F", 1, 0)],                     # Solb: SOLO Fa#
+    ("G", -1): [("F", 1, 0),   ("E", 2, 0)],      # Solb: Fa#, Mix
     ("A", -1): [("G", 1, 0)],                     # Lab: SOLO Sol#
     ("B", -1): [("A", 1, 0),   ("C", -2, +1)],    # Sib: La#, Dobb↑
 
