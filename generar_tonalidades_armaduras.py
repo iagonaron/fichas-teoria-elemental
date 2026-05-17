@@ -272,10 +272,16 @@ def _postprocess_keysig_rojo(svg):
     (grupos `class="keySig"`). El pentagrama, la clave y las barras siguen
     en negro. Usamos esto en la hoja de soluciones del bloque Armaduras:
     la respuesta al ejercicio es DIBUJAR la armadura, así que la pintamos
-    en rojo sobre el mismo pentagrama en blanco que veía el alumno."""
+    en rojo sobre el mismo pentagrama en blanco que veía el alumno.
+
+    Maneja tanto `<g class="keySig" ...>` como `<g class="keySig" .../>`
+    (self-closing, que aparece con armadura vacía como DoM/Lam). El
+    regex anterior insertaba `style="..."` después de la `/` y rompía
+    el XML del SVG.
+    """
     return re.sub(
-        r'(<g[^>]*class="keySig"[^>]*)>',
-        r'\1 style="color:#ff0000;fill:#ff0000;stroke:#ff0000">',
+        r'(<g[^>]*class="keySig"[^>/]*)(\s*/?)>',
+        r'\1 style="color:#ff0000;fill:#ff0000;stroke:#ff0000"\2>',
         svg,
     )
 

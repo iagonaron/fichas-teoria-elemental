@@ -49,7 +49,8 @@ GRADOS = [
     (4, "Subdominante"),
     (5, "Dominante"),
     (6, "Superdominante"),
-    (7, "Sensible"),
+    (7, "Sensible"),        # VII a SEMITONO de la tónica (subido en m).
+    (7, "Subtónica"),       # VII a TONO de la tónica (bajado en M).
 ]
 
 # Grados sorteables en el ejercicio: todos menos la Tónica.
@@ -103,22 +104,26 @@ def es_menor(nombre):
     return nombre.endswith("m")
 
 
-def nota_del_grado(tonalidad_nombre, fifths, grado_num):
+def nota_del_grado(tonalidad_nombre, fifths, grado_num, grado_nombre=None):
     """Devuelve (step, alter) de la nota que ocupa `grado_num` en la
     tonalidad dada.
 
-    Convención:
-      - Mayores: escala mayor natural (lo que marca la armadura).
-      - Menores: escala menor ARMÓNICA. Esto implica que el VII
-        ("Sensible") va elevado un semitono respecto a la armadura
-        (p. ej. en Sim, VII = La# en lugar de La). Los demás grados
-        coinciden con la menor natural.
+    El VII grado puede ser:
+      - "Sensible" → a SEMITONO de la tónica. En MAYOR coincide con
+        la armadura. En MENOR (natural) hay que SUBIR el VII un
+        semitono respecto a la armadura.
+      - "Subtónica" → a TONO de la tónica. En MENOR coincide con la
+        armadura. En MAYOR hay que BAJAR el VII un semitono respecto
+        a la armadura.
+      - Si no se pasa `grado_nombre`, se asume "Sensible" en mayor
+        (caso natural) y "Subtónica" en menor (caso natural, sin
+        alterar). Es decir, el comportamiento por defecto NO altera
+        respecto a la armadura — fundamental cuando se dibuja la
+        ESCALA COMPLETA en la solución, donde el alumno espera ver
+        los grados según la armadura natural a menos que se le pida
+        explícitamente la Sensible o la Subtónica alterada.
 
-    En español se distingue:
-      - VII natural = "Subtónica"
-      - VII elevado = "Sensible"
-    Como nuestras etiquetas usan siempre "Sensible", en menores hay
-    que elevar el VII para que la teoría coincida con la etiqueta.
+    Los demás grados nunca se alteran.
     """
     tonica_step, _ = TONICA[tonalidad_nombre]
     idx_tonica = gi.STEPS.index(tonica_step)
@@ -126,9 +131,17 @@ def nota_del_grado(tonalidad_nombre, fifths, grado_num):
     step_n = gi.STEPS[new_idx]
     alter_n = alteracion_en_armadura(step_n, fifths)
 
-    # En menor armónica el VII está elevado un semitono.
-    if es_menor(tonalidad_nombre) and grado_num == 7:
-        alter_n += 1
+    # Alterar el VII solo cuando el ejercicio lo pide explícitamente
+    # como nombre que NO coincide con su forma natural en la tonalidad.
+    if grado_num == 7:
+        if grado_nombre == "Sensible" and es_menor(tonalidad_nombre):
+            # Menor natural → el VII está a TONO. Subir para que sea
+            # Sensible (semitono).
+            alter_n += 1
+        elif grado_nombre == "Subtónica" and not es_menor(tonalidad_nombre):
+            # Mayor natural → el VII está a SEMITONO. Bajar para que
+            # sea Subtónica (tono).
+            alter_n -= 1
 
     return step_n, alter_n
 
@@ -152,7 +165,7 @@ def elegir_grados(seed=None, n_compases=2):
     pesos = [gtav.peso_fifths(f) for _, f in gtav.TONALIDADES]
 
     items = []
-    usados_grado = set()       # para no repetir (tonalidad, grado)
+    usados_grado = set()       # para no repetir (tonalidad, grado_nombre)
     tonalidades_usadas = set() # para no repetir la misma tonalidad
     for _ in range(n_compases):
         for _ in range(300):
@@ -163,10 +176,12 @@ def elegir_grados(seed=None, n_compases=2):
             # y hace el ejercicio más variado.
             if t[0] in tonalidades_usadas:
                 continue
-            key = (t[0], grado_num)
+            # Identidad de un grado = (tonalidad, nombre del grado) para
+            # diferenciar "Sensible" vs "Subtónica" en el mismo grado_num=7.
+            key = (t[0], grado_nombre)
             if key in usados_grado:
                 continue
-            step_r, alter_r = nota_del_grado(t[0], t[1], grado_num)
+            step_r, alter_r = nota_del_grado(t[0], t[1], grado_num, grado_nombre)
             # Evitar dobles alteraciones (Sol#m/Re#m/La#m con sensible).
             if abs(alter_r) > 1:
                 continue
@@ -339,7 +354,8 @@ def _nota_negra_sin_plica_xml(step, octave, alter, color=None, fifths=0):
 
 def musicxml_escala_solucion(fifths, tonalidad_nombre, tonica_octava,
                               grado_objetivo,
-                              con_barra_final=False, final_heavy=True):
+                              con_barra_final=False, final_heavy=True,
+                              nombre_vii=None):
     """Compás con armadura REAL + escala completa (7 notas) como cabezas
     de negra sin plica. La(s) nota(s) del/los grado(s) pedido(s) van en
     ROJO, el resto en negro.
@@ -347,10 +363,15 @@ def musicxml_escala_solucion(fifths, tonalidad_nombre, tonica_octava,
     `grado_objetivo` puede ser un int (un solo grado) o un iterable de
     ints (p.ej. [2, 5] para señalar grados II y V en el QIHE).
 
-    Regla de alteraciones: NINGUNA nota lleva accidental explícito.
-    Verovio dibuja el accidental automáticamente SOLO cuando la
-    alteración de la nota difiere de la armadura — es exactamente la
-    regla que usamos (p. ej. la VII elevada en menor armónica).
+    `nombre_vii`: si el ejercicio pide explícitamente "Sensible" o
+    "Subtónica" como uno de los grados objetivo, hay que dibujar el VII
+    con esa alteración. Si es `None`, el VII se dibuja según la armadura
+    natural (Sensible en mayor, Subtónica en menor) — los demás grados
+    salen como su armadura sin accidentes.
+
+    Verovio NO añade accidental automáticamente desde `<alter>`: hay
+    que ponerlo explícito (lo hace `_nota_negra_sin_plica_xml` a través
+    de `_accidental_xml_vs_armadura`).
     """
     if con_barra_final:
         style = "light-heavy" if final_heavy else "light-light"
@@ -367,7 +388,12 @@ def musicxml_escala_solucion(fifths, tonalidad_nombre, tonica_octava,
     tonica_step, _ = TONICA[tonalidad_nombre]
     notas = []
     for g in range(1, 8):
-        step_g, alter_g = nota_del_grado(tonalidad_nombre, fifths, g)
+        # Para el VII pasamos `nombre_vii` (puede ser "Sensible",
+        # "Subtónica" o None). Para el resto de grados no aplica.
+        nombre_para_calc = nombre_vii if g == 7 else None
+        step_g, alter_g = nota_del_grado(
+            tonalidad_nombre, fifths, g, nombre_para_calc,
+        )
         octava_g = _octava_grado(tonica_step, tonica_octava, g)
         color = "#FF0000" if g in objetivos else None
         notas.append(_nota_negra_sin_plica_xml(
@@ -457,10 +483,16 @@ K_VB_PER_MM = 90.06
 
 def _postprocess_keysig_rojo(svg):
     """Pinta en rojo los grupos `class="keySig"` del SVG (mismas reglas
-    que en generar_tonalidades_armaduras)."""
+    que en generar_tonalidades_armaduras).
+
+    Maneja tanto `<g class="keySig" ...>` como `<g class="keySig" .../>`
+    (self-closing, que aparece cuando la armadura está vacía — p. ej.
+    en DoM o La m). El regex anterior rompía estos casos generando
+    `<g ... / style="...">` que cairosvg no parsea.
+    """
     return re.sub(
-        r'(<g[^>]*class="keySig"[^>]*)>',
-        r'\1 style="color:#ff0000;fill:#ff0000;stroke:#ff0000">',
+        r'(<g[^>]*class="keySig"[^>/]*)(\s*/?)>',
+        r'\1 style="color:#ff0000;fill:#ff0000;stroke:#ff0000"\2>',
         svg,
     )
 
@@ -566,12 +598,18 @@ def dibujar_en_canvas(c, x_ini, y_top, items, num_enunciado, out_pdf_path,
         )
         if modo_solucion:
             # Escala completa (I–VII) como negras sin plica. La nota del
-            # grado pedido se pinta en rojo.
+            # grado pedido se pinta en rojo. Si el grado pedido es el
+            # VII con un nombre explícito (Sensible/Subtónica), pasamos
+            # el nombre para que la escala dibuje el VII con la
+            # alteración apropiada. Para otros grados, VII queda según
+            # la armadura natural.
+            nombre_vii = it["grado_nombre"] if it["grado_num"] == 7 else None
             xml = musicxml_escala_solucion(
                 it["fifths"], it["tonalidad_nombre"],
                 tonica_octava=4,
                 grado_objetivo=it["grado_num"],
                 con_barra_final=True, final_heavy=final_heavy,
+                nombre_vii=nombre_vii,
             )
             vb_w, vb_h, noteheads = _render_compas_png(
                 xml, png_path, keysig_rojo=True, return_noteheads=True,

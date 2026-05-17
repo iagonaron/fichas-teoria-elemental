@@ -86,11 +86,16 @@ def elegir_qihe(seed=None):
         tonal, fifths = t
         g1, g1_nombre = random.choice(gg.GRADOS)
         g2, g2_nombre = random.choice(gg.GRADOS)
-        if g1 == g2:
+        # `gg.GRADOS` ahora incluye dos entradas con grado_num=7
+        # (Sensible y Subtónica). Si ambos son grado 7, da igual el
+        # nombre — la "nota" es distinta. Pero si el grado_num es el
+        # mismo entre g1 y g2 (caso 7=7, ambas Sensible/Subtónica),
+        # serían "el mismo grado" del compás, evitar.
+        if g1 == g2 or (g1 == 7 and g2 == 7):
             continue
 
-        step1, alter1 = gg.nota_del_grado(tonal, fifths, g1)
-        step2, alter2 = gg.nota_del_grado(tonal, fifths, g2)
+        step1, alter1 = gg.nota_del_grado(tonal, fifths, g1, g1_nombre)
+        step2, alter2 = gg.nota_del_grado(tonal, fifths, g2, g2_nombre)
 
         # Filtros de validez de cada nota.
         if abs(alter1) > 1 or abs(alter2) > 1:
@@ -398,11 +403,22 @@ def dibujar_en_canvas(c, x_ini, y_top, item, num_enunciado, out_pdf_path,
 
         # c1: ESCALA completa (negras sin plica) con las 2 notas del
         # intervalo en rojo. Flechas sobre ellas las marcan abajo.
+        # Si uno de los grados objetivo es el VII con nombre explícito
+        # (Sensible/Subtónica), pasamos ese nombre para que la escala
+        # dibuje el VII con la alteración correcta. Si NO es el VII el
+        # pedido, el VII queda como su forma natural (Sensible en M,
+        # Subtónica en m), SIN accidental.
+        nombre_vii = None
+        if item["grado1_num"] == 7:
+            nombre_vii = item["grado1_nombre"]
+        elif item["grado2_num"] == 7:
+            nombre_vii = item["grado2_nombre"]
         xml1 = gg.musicxml_escala_solucion(
             item["fifths"], item["tonalidad_nombre"],
             tonica_octava=4,
             grado_objetivo=[item["grado1_num"], item["grado2_num"]],
             con_barra_final=True, final_heavy=False,
+            nombre_vii=nombre_vii,
         )
         # c2: intervalo melódico SIN armadura impresa. Los accidentales
         # se deciden respecto a la armadura del enunciado (`item['fifths']`),
