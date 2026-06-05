@@ -86,16 +86,18 @@ def elegir_qihe(seed=None):
         tonal, fifths = t
         g1, g1_nombre = random.choice(gg.GRADOS)
         g2, g2_nombre = random.choice(gg.GRADOS)
-        # `gg.GRADOS` ahora incluye dos entradas con grado_num=7
-        # (Sensible y Subtónica). Si ambos son grado 7, da igual el
-        # nombre — la "nota" es distinta. Pero si el grado_num es el
-        # mismo entre g1 y g2 (caso 7=7, ambas Sensible/Subtónica),
-        # serían "el mismo grado" del compás, evitar.
-        if g1 == g2 or (g1 == 7 and g2 == 7):
+        if g1 == g2:
             continue
 
-        step1, alter1 = gg.nota_del_grado(tonal, fifths, g1, g1_nombre)
-        step2, alter2 = gg.nota_del_grado(tonal, fifths, g2, g2_nombre)
+        # Orden ascendente por grado: grado1 es SIEMPRE el más grave.
+        # Así el enunciado nombra primero la nota inferior y el intervalo
+        # cabe dentro de una sola octava (máximo I→VII, Tónica→Sensible).
+        # Nunca preguntará p.ej. Superdominante→Dominante.
+        if g1 > g2:
+            g1, g1_nombre, g2, g2_nombre = g2, g2_nombre, g1, g1_nombre
+
+        step1, alter1 = gg.nota_del_grado(tonal, fifths, g1)
+        step2, alter2 = gg.nota_del_grado(tonal, fifths, g2)
 
         # Filtros de validez de cada nota.
         if abs(alter1) > 1 or abs(alter2) > 1:
@@ -105,16 +107,13 @@ def elegir_qihe(seed=None):
         if (step2, alter2) in gi.RARAS:
             continue
 
-        # Intervalo ascendente desde g1 a g2, dentro de 1 octava como máximo.
-        # Tomamos la tónica en octava 4 y posicionamos los grados según su
-        # octava NATURAL en la escala (cruce B→C). Si el grado 2 queda por
-        # debajo del 1 (p.ej. Mediante→Tónica), subimos el 2 una octava
-        # para que el intervalo sea siempre ascendente.
+        # Intervalo ascendente desde g1 a g2, SIEMPRE dentro de 1 octava.
+        # Como g2 > g1 por construcción, ya no hace falta subir octava:
+        # ambos grados viven en la misma octava de la escala (con el
+        # posible cruce natural B→C que calcula _octava_grado).
         tonica_step, _ = gg.TONICA[tonal]
         octave1 = _octava_grado(tonica_step, 4, g1)
         octave2 = _octava_grado(tonica_step, 4, g2)
-        if g2 < g1:
-            octave2 += 1
         intervalo = gi.calcular_intervalo(
             (step1, octave1, alter1),
             (step2, octave2, alter2),
@@ -187,25 +186,13 @@ def musicxml_un_compas(n_placeholders, con_barra_final=False, final_heavy=True):
 
 def musicxml_c1_solucion(fifths, nota1, nota2, n_placeholders,
                           con_barra_final=True, final_heavy=False,
-                          pos_n1=2, pos_n2=5,
-                          fifths_ref=None):
+                          pos_n1=2, pos_n2=5):
     """c1 de la solución: armadura REAL + 2 redondas rojas visibles
     (las 2 notas del intervalo). El resto de slots se rellena con
     silencios ocultos para conservar el ancho natural.
 
     `nota1` y `nota2` son tuplas (step, octave, alter).
-
-    `fifths` es la armadura VISIBLE (lo que se dibuja en el `<key>`).
-    `fifths_ref` (opcional) es la armadura usada como REFERENCIA para
-    decidir si una nota necesita accidental explícito (sharp/flat/
-    natural). Si no se pasa, se usa `fifths`. Útil cuando se quiere
-    el `<key>` vacío (compás melódico SIN armadura impresa) pero a la
-    vez dibujar los accidentales respecto a la armadura conceptual
-    del enunciado (p. ej. becuadro a la sensible de una tonalidad
-    menor con bemoles).
     """
-    if fifths_ref is None:
-        fifths_ref = fifths
     if con_barra_final:
         style = "light-heavy" if final_heavy else "light-light"
         barra = (f'<barline location="right">'
@@ -218,8 +205,8 @@ def musicxml_c1_solucion(fifths, nota1, nota2, n_placeholders,
         '<rest/><duration>4</duration><type>whole</type>'
         '</note>'
     )
-    n1 = gg._nota_visible_xml(*nota1, color="#FF0000", fifths=fifths_ref)
-    n2 = gg._nota_visible_xml(*nota2, color="#FF0000", fifths=fifths_ref)
+    n1 = gg._nota_visible_xml(*nota1, color="#FF0000")
+    n2 = gg._nota_visible_xml(*nota2, color="#FF0000")
     elementos = []
     for i in range(1, n_placeholders + 1):
         if i == pos_n1:
@@ -270,20 +257,17 @@ def musicxml_c2_solucion(fifths, nota1, nota2, n_placeholders,
 
 def musicxml_c2_intervalo_melodico(nota1, nota2, n_placeholders,
                                      con_barra_final=True, final_heavy=True,
-                                     pos_n1=1, pos_n2=2,
-                                     fifths_ref=0):
-    """c2 SIN armadura visible (`<key>` a 0) con las 2 redondas
-    consecutivas. Si se pasa `fifths_ref` distinto de 0, los
-    accidentales (sharp/flat/becuadro) se deciden respecto a esa
-    armadura aunque no esté dibujada. Esto refuerza pedagógicamente
-    al alumno que p. ej. la sensible de una tonalidad menor con
-    bemoles lleva becuadro respecto a su armadura.
+                                     pos_n1=1, pos_n2=2):
+    """c2 SIN armadura (fifths=0) con las 2 redondas consecutivas.
+
+    Regla del ejercicio: aquí NO hay armadura, así que cualquier
+    alteración de las notas se dibuja explícitamente. Como pasamos
+    `<alter>` correcto, verovio se encarga de pintar # o b si alter != 0.
     """
     return musicxml_c1_solucion(
         0, nota1, nota2, n_placeholders,
         con_barra_final=con_barra_final, final_heavy=final_heavy,
         pos_n1=pos_n1, pos_n2=pos_n2,
-        fifths_ref=fifths_ref,
     )
 
 
@@ -393,41 +377,27 @@ def dibujar_en_canvas(c, x_ini, y_top, item, num_enunciado, out_pdf_path,
 
     if modo_solucion:
         # Calculamos octavas reales de las 2 notas (tónica en octava 4).
+        # grado2 > grado1 siempre, así que no hay que subir octava.
         tonica_step, _ = gg.TONICA[item["tonalidad_nombre"]]
         oct1 = _octava_grado(tonica_step, 4, item["grado1_num"])
         oct2 = _octava_grado(tonica_step, 4, item["grado2_num"])
-        if item["grado2_num"] < item["grado1_num"]:
-            oct2 += 1
         nota1 = (item["step1"], oct1, item["alter1"])
         nota2 = (item["step2"], oct2, item["alter2"])
 
         # c1: ESCALA completa (negras sin plica) con las 2 notas del
         # intervalo en rojo. Flechas sobre ellas las marcan abajo.
-        # Si uno de los grados objetivo es el VII con nombre explícito
-        # (Sensible/Subtónica), pasamos ese nombre para que la escala
-        # dibuje el VII con la alteración correcta. Si NO es el VII el
-        # pedido, el VII queda como su forma natural (Sensible en M,
-        # Subtónica en m), SIN accidental.
-        nombre_vii = None
-        if item["grado1_num"] == 7:
-            nombre_vii = item["grado1_nombre"]
-        elif item["grado2_num"] == 7:
-            nombre_vii = item["grado2_nombre"]
         xml1 = gg.musicxml_escala_solucion(
             item["fifths"], item["tonalidad_nombre"],
             tonica_octava=4,
             grado_objetivo=[item["grado1_num"], item["grado2_num"]],
             con_barra_final=True, final_heavy=False,
-            nombre_vii=nombre_vii,
         )
-        # c2: intervalo melódico SIN armadura impresa. Los accidentales
-        # se deciden respecto a la armadura del enunciado (`item['fifths']`),
-        # así el becuadro a la sensible/etc se ve también aquí.
+        # c2: intervalo melódico SIN armadura. Las notas van con su
+        # alteración explícita (alter ≠ 0 → verovio pinta # o b).
         xml2 = musicxml_c2_intervalo_melodico(
             nota1, nota2, N_PLACEHOLDERS_C2,
             con_barra_final=True, final_heavy=True,
             pos_n1=1, pos_n2=2,
-            fifths_ref=item["fifths"],
         )
         vb1, vbh1, noteheads1 = _render_compas_png(
             xml1, png1, keysig_rojo=True, return_noteheads=True,
